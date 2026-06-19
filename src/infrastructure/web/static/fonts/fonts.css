@@ -1,0 +1,92 @@
+/* ============================================================
+   SB Sans family — локальные шрифты
+   Пути даны относительно этого файла (static/fonts/fonts.css).
+   ============================================================ */
+
+/* ---------- SB Sans Text (основной текст) ---------- */
+@font-face {
+    font-family: "SB Sans Text";
+    src: url("SBSans_Text_1_002/SBSansText-Light.woff2") format("woff2"),
+         url("SBSans_Text_1_002/SBSansText-Light.woff")  format("woff");
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Text";
+    src: url("SBSans_Text_1_002/SBSansText-Regular.woff2") format("woff2"),
+         url("SBSans_Text_1_002/SBSansText-Regular.woff")  format("woff");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Text";
+    src: url("SBSans_Text_1_002/SBSansText-Medium.woff2") format("woff2"),
+         url("SBSans_Text_1_002/SBSansText-Medium.woff")  format("woff");
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Text";
+    src: url("SBSans_Text_1_002/SBSansText-Semibold.woff2") format("woff2"),
+         url("SBSans_Text_1_002/SBSansText-Semibold.woff")  format("woff");
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Text";
+    src: url("SBSans_Text_1_002/SBSansText-Bold.woff2") format("woff2"),
+         url("SBSans_Text_1_002/SBSansText-Bold.woff")  format("woff");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* ---------- SB Sans Display (заголовки) ---------- */
+@font-face {
+    font-family: "SB Sans Display";
+    src: url("SBSansDisplay_1_000/TTF/SBSansDisplay-Light.ttf") format("truetype");
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Display";
+    src: url("SBSansDisplay_1_000/TTF/SBSansDisplay-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Display";
+    src: url("SBSansDisplay_1_000/TTF/SBSansDisplay-SemiBold.ttf") format("truetype");
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Display";
+    src: url("SBSansDisplay_1_000/TTF/SBSansDisplay-Bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* ---------- SB Sans Mono (для code) ---------- */
+@font-face {
+    font-family: "SB Sans Mono";
+    src: url("SBSans_Mono_1_001/OT-TTF/SBSansTextMono-Regular.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "SB Sans Mono";
+    src: url("SBSans_Mono_1_001/OT-TTF/SBSansTextMono-Bold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}

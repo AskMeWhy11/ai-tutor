@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+    <meta charset="utf-8">
+    <title>AI Tutor — тренажёр</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+
+<body class="session-body">
+    {% import "_layout_parts.html" as parts %}
+    {{ parts.sidebar(active='cart') }}
+
+    <div class="page page--session">
+        {# Презентация на весь экран — фон #}
+        <div class="pdf-bg" aria-hidden="true">
+            <object data="/static/cc_preza.pdf#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf"
+                class="pdf-bg-embed" aria-label="PDF-презентация">
+                <div class="pdf-bg-fallback">
+                    <p>Презентация не загружена.</p>
+                    <p class="muted">Положите <code>cc_preza.pdf</code> в <code>/static/</code>.</p>
+                </div>
+            </object>
+        </div>
+
+        {# Плавающая верхняя панель поверх PDF #}
+        <header class="session-topbar">
+            <a href="/" class="session-topbar__back" title="На главную">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                </svg>
+                <span>Назад</span>
+            </a>
+            <div class="session-topbar__info">
+                Сессия: <code id="sess-id">{{ session_id }}</code> ·
+                Состояние: <code id="sess-state">—</code>
+            </div>
+            <div class="session-topbar__actions">
+                <button id="btn-new" type="button" class="btn btn-ghost btn-sm">Новая сессия</button>
+                <button id="btn-debug" type="button" class="btn btn-ghost btn-sm" aria-pressed="false">Debug</button>
+                <a href="/" id="btn-home" class="btn btn-ghost btn-sm">← На главную</a>
+            </div>
+        </header>
+
+        <aside class="avatar-portrait" id="avatar-portrait" aria-hidden="true">
+            <div class="avatar-portrait__frame">
+                <div class="avatar-portrait__bg"></div>
+                <img class="avatar-portrait__photo" src="/static/avatar.jpg" alt=""
+                    onerror="this.style.display='none'" />
+                <div class="avatar-portrait__shine"></div>
+                <div class="avatar-portrait__ring"></div>
+            </div>
+            <div class="avatar-portrait__caption">
+                <span class="avatar-portrait__name">Наставник</span>
+                <span class="avatar-portrait__status" id="avatar-portrait-status">на связи</span>
+            </div>
+        </aside>
+
+        {# Скрытый аватар: defs для <use> + audio-target #}
+        <div id="avatar" class="avatar-hidden" data-speaking="false">
+            <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+                <defs>
+                    <g id="tutor-avatar">
+                        <path
+                            d="M30,360 L30,304 Q30,262 86,250 L132,242 L160,262 L188,242 L234,250 Q290,262 290,304 L290,360 Z"
+                            fill="#7c3aed" />
+                    </g>
+                </defs>
+            </svg>
+            <span id="avatar-status" hidden>ожидает</span>
+            <audio id="avatar-audio" preload="auto"></audio>
+        </div>
+
+        {# Центральное окно чата #}
+        <section id="chat-dock" class="chat-dock chat-dock--center" aria-label="Диалог с наставником">
+            <header class="chat-dock-header" id="chat-dock-drag">
+                <span class="chat-dock-grip" aria-hidden="true">⋮⋮</span>
+                <span class="chat-dock-title">AI-наставник</span>
+                <button type="button" id="chat-dock-reset" class="chat-dock-reset"
+                    title="Сбросить положение и размер" aria-label="Сбросить">⤾</button>
+            </header>
+
+            <ol id="chat-log" class="chat-log" aria-live="polite"></ol>
+
+            <div id="quick-actions" class="quick-actions" aria-label="Быстрые действия"></div>
+
+            <form id="command-form" class="composer" autocomplete="off">
+                <input id="composer-input" type="text" placeholder="Введите ответ или нажмите на кнопку записи…" />
+                <button type="button" id="btn-mic" title="Голосовой ввод" aria-pressed="false">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="3" width="6" height="12" rx="3" />
+                        <path d="M5 11a7 7 0 0 0 14 0" />
+                        <line x1="12" y1="18" x2="12" y2="22" />
+                    </svg>
+                </button>
+                <button type="submit" id="composer-send" title="Отправить" aria-label="Отправить">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="19" x2="12" y2="5" />
+                        <polyline points="5 12 12 5 19 12" />
+                    </svg>
+                </button>
+            </form>
+
+            <details id="debug" class="debug" hidden>
+                <summary>Raw effects</summary>
+                <pre id="debug-effects"></pre>
+            </details>
+
+            <div class="chat-dock-resize" id="chat-dock-resize" aria-hidden="true"></div>
+        </section>
+    </div>
+
+    <script>
+        window.INITIAL_SESSION_ID = "{{ session_id }}";
+    </script>
+    <script src="/static/app.js"></script>
+</body>
+
+</html>

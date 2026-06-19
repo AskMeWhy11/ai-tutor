@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>AI Tutor — Начало обучения</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+{% import "_layout_parts.html" as parts %}
+{{ parts.sidebar(active='cart') }}
+
+<div class="page">
+    {{ parts.topbar() }}
+
+    <main class="content">
+        <section class="hero-card">
+            <div class="hero-text">
+                <h1 class="hero-title">AI Tutor</h1>
+                <p class="hero-subtitle">Соберите свою программу обучения<br>и начните прокачивать навыки продаж</p>
+            </div>
+            <div class="hero-avatar">
+                <div class="hero-avatar-circle">
+                    <!-- <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                         stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="8" r="4"/>
+                        <path d="M4 21a8 8 0 0 1 16 0"/>
+                    </svg> -->
+                    <img class="welcome-avatar" src="..\static\avatar.jpg" alt="">
+                </div>
+            </div>
+        </section>
+
+        <h2 class="section-title">Начните обучение</h2>
+
+        <section class="program-card">
+            <div id="resume-block" class="resume-block" hidden>
+                <p>У тебя есть незавершённая сессия.</p>
+                <div class="resume-actions">
+                    <button type="button" id="btn-resume" class="btn btn-primary">Продолжить</button>
+                    <button type="button" id="btn-forget" class="btn btn-ghost">Забыть и начать заново</button>
+                </div>
+            </div>
+
+            <form id="start-form" class="start-form" autocomplete="off">
+                <label class="field">
+                    <span class="field-label">Продукт</span>
+                    <select name="product_id" id="field-product" required>
+                        <option value="kk_novichok" selected>Кредитная карта (КК_Новичок)</option>
+                        <option value="debit_card" disabled>Дебетовая карта — скоро</option>
+                        <option value="mortgage" disabled>Ипотека — скоро</option>
+                    </select>
+                </label>
+
+                <label class="field">
+                    <span class="field-label">Имя сотрудника</span>
+                    <input type="text" name="employee_name" id="field-name"
+                           placeholder="Например, Анна" maxlength="64"
+                           autocomplete="given-name">
+                </label>
+
+                <button type="submit" class="btn btn-primary btn-wide" id="btn-start">
+                    Начать обучение
+                </button>
+
+                <p class="form-hint">
+                    Выбирай продукт и нажимай «Начать обучение» — наставник встретит тебя
+                    вводным сообщением и подскажет, с чего лучше стартовать.
+                </p>
+            </form>
+        </section>
+    </main>
+</div>
+
+<script src="/static/welcome.js"></script>
+</body>
+</html>

@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+    <meta charset="utf-8">
+    <title>AI Tutor — Админка промптов</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/admin.css">
+</head>
+
+<body>
+    <header class="topbar">
+        <h1>Админка · промпты</h1>
+        <a class="btn" href="/">← На главную</a>
+    </header>
+
+    <main class="admin">
+        {% if saved %}
+        <div class="admin-flash">Промпты сохранены.</div>
+        {% endif %}
+        {% if case_saved %}
+        <div class="admin-flash">Контент кейса обновлён: {{ case_saved }}</div>
+        {% endif %}
+
+        <input type="radio" name="admin-tab" id="admin-tab-case" class="admin-tab-input" checked>
+        <input type="radio" name="admin-tab" id="admin-tab-common" class="admin-tab-input">
+
+        <nav class="admin-tabs" role="tablist" aria-label="Группы промптов">
+            <label for="admin-tab-case" class="admin-tab" role="tab">Кейс «КК_Новичок»</label>
+            <label for="admin-tab-common" class="admin-tab" role="tab">Общие промпты</label>
+        </nav>
+
+        {# ============================================================ #}
+        {# Вкладка 1: Кейс «КК_Новичок» #}
+        {# ============================================================ #}
+        <section class="admin-section admin-tab-panel admin-tab-panel--case" role="tabpanel">
+            <header class="admin-section__head">
+                <h2 class="admin-section__title">Кейс «КК_Новичок»</h2>
+                <p class="admin-section__hint">
+                    Промпты, специфичные для продукта «Кредитная карта».
+                    Используют фактологию и образцовые диалоги из
+                    <code>content/cases/cc_novichok/</code>.
+                </p>
+            </header>
+
+            <h3 class="admin-h3">Контент кейса</h3>
+            {# ===== Внешний аккордеон: контент кейса + редактор чек-листа ===== #}
+            <details class="admin-collapse admin-collapse--outer">
+                <summary class="admin-collapse__summary">
+                    Контент и чек-лист
+                    <span class="admin-collapse__meta">файлы фактологии, диалогов и критерии оценки</span>
+                </summary>
+                <div class="admin-collapse__body">
+
+                    {# --- Вложенный аккордеон: загрузка/восстановление файлов --- #}
+                    <details class="admin-collapse">
+                        <summary class="admin-collapse__summary">
+                            Контент кейса
+                            <span class="admin-collapse__meta">facts.md · dialogues.md · checklist.json (raw)</span>
+                        </summary>
+                        <div class="admin-collapse__body">
+                            <p class="admin-hint">
+                                Markdown-файлы и чек-лист. После сохранения/восстановления
+                                содержимое сразу подхватится приложением (кэш сбрасывается).
+                                Ограничение размера загружаемого файла — 1 МБ, кодировка UTF-8.
+                            </p>
+
+                            {% for f in [
+                            {"key": "facts", "label": "facts.md — фактология", "filename": "facts.md"},
+                            {"key": "dialogues", "label": "dialogues.md — образцовые диалоги", "filename":
+                            "dialogues.md"},
+                            {"key": "checklist", "label": "checklist.json — чек-лист (raw)", "filename":
+                            "checklist.json"}
+                            ] %}
+                            <div class="admin-card">
+                                <div class="admin-row">
+                                    <label class="admin-label">{{ f.label }}</label>
+                                    <div class="admin-row-actions">
+                                        <a class="btn" href="/admin/case/cc_novichok/{{ f.key }}" download>Скачать</a>
+                                        {% if defaults_available.get(f.key) %}
+                                        <form method="post" action="/admin/case/cc_novichok/{{ f.key }}/restore"
+                                            class="admin-inline-form"
+                                            onsubmit="return confirm('Восстановить {{ f.filename }} из значения по умолчанию? Текущая версия будет перезаписана.');">
+                                            <button type="submit" class="btn btn-warn">Восстановить по
+                                                умолчанию</button>
+                                        </form>
+                                        {% else %}
+                                        <span class="admin-badge" title="Нет файла default/{{ f.filename }}">нет
+                                            дефолта</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <form method="post" action="/admin/case/cc_novichok/{{ f.key }}"
+                                    enctype="multipart/form-data" class="admin-upload">
+                                    <input type="file" name="file"
+                                        accept="{% if f.key == 'checklist' %}.json,application/json{% else %}.md,text/markdown,text/plain{% endif %}"
+                                        required>
+                                    <button type="submit" class="btn btn-primary">Загрузить</button>
+                                </form>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </details>
+
+                    {# --- Вложенный аккордеон: редактор чек-листа по зонам --- #}
+                    <details class="admin-collapse" id="checklist">
+                        <summary class="admin-collapse__summary">
+                            Чек-лист — редактор
+                            <span class="admin-collapse__meta">критерии оценки по зонам (needs · pitch ·
+                                conditions)</span>
+                        </summary>
+                        <div class="admin-collapse__body">
+                            <p class="admin-hint">
+                                Структурированный редактор <code>checklist.json</code>. Каждый элемент —
+                                критерий, по которому LLM-судья оценивает зону. <code>example_phrases</code>
+                                и <code>keywords</code> вводятся по одной строке на запись.
+                            </p>
+
+                            <form method="post" action="/admin/case/cc_novichok/checklist/edit"
+                                class="admin-form admin-checklist">
+                                {% for zone in checklist_zones %}
+                                <div class="admin-zone">
+                                    <header class="admin-zone__head">
+                                        <h4 class="admin-zone__title">{{ zone.label }}</h4>
+                                        <span class="admin-zone__key"><code>{{ zone.key }}</code></span>
+                                    </header>
+
+                                    {% if zone.entries %}
+                                    {% for item in zone.entries %}
+                                    <div class="admin-card admin-cl-item">
+                                        <div class="admin-row">
+                                            <span class="admin-label">#{{ loop.index }} · {{ item.id or '—' }}</span>
+                                            <label class="admin-delete">
+                                                <input type="checkbox" name="delete__{{ zone.key }}__{{ loop.index0 }}">
+                                                удалить
+                                            </label>
+                                        </div>
+
+                                        <div class="admin-grid-2">
+                                            <div>
+                                                <label class="admin-sublabel">ID</label>
+                                                <input type="text" name="cl__{{ zone.key }}__{{ loop.index0 }}__id"
+                                                    value="{{ item.id }}" class="admin-input">
+                                            </div>
+                                            <div>
+                                                <label class="admin-sublabel">Название</label>
+                                                <input type="text" name="cl__{{ zone.key }}__{{ loop.index0 }}__name"
+                                                    value="{{ item.name }}" class="admin-input">
+                                            </div>
+                                        </div>
+
+                                        <label class="admin-sublabel">Критерий</label>
+                                        <textarea name="cl__{{ zone.key }}__{{ loop.index0 }}__criteria"
+                                            rows="3">{{ item.criteria }}</textarea>
+
+                                        <label class="admin-sublabel">Примеры фраз (по одной на строку)</label>
+                                        <textarea name="cl__{{ zone.key }}__{{ loop.index0 }}__example_phrases"
+                                            rows="3">{{ item.example_phrases | join('\n') }}</textarea>
+
+                                        <label class="admin-sublabel">Ключевые слова (по одному на строку)</label>
+                                        <textarea name="cl__{{ zone.key }}__{{ loop.index0 }}__keywords"
+                                            rows="2">{{ item.keywords | join('\n') }}</textarea>
+                                    </div>
+                                    {% endfor %}
+                                    {% else %}
+                                    <p class="admin-hint admin-zone__empty">В этой зоне пока нет элементов.</p>
+                                    {% endif %}
+
+                                    <div class="admin-zone__actions">
+                                        <button type="submit" name="action" value="add_{{ zone.key }}" class="btn">+
+                                            Добавить элемент в «{{ zone.label }}»</button>
+                                    </div>
+                                </div>
+                                {% endfor %}
+
+                                <div class="admin-actions">
+                                    <button type="submit" class="btn btn-primary">Сохранить чек-лист</button>
+                                </div>
+                            </form>
+                        </div>
+                    </details>
+
+                </div>
+            </details>
+
+            {# ===== Промпты режимов / квиз ===== #}
+            <form method="post" action="/admin/prompts" class="admin-form">
+                <h3 class="admin-h3">Режимы диалога (LLM-аватар)</h3>
+                {% for mode in modes %}
+                <div class="admin-card">
+                    <label class="admin-label" for="mode__{{ mode.key }}">{{ mode.label }}</label>
+                    <textarea id="mode__{{ mode.key }}" name="mode__{{ mode.key }}" rows="14">{{ mode.text }}</textarea>
+                </div>
+                {% endfor %}
+
+                <h3 class="admin-h3">Проверочный квиз (TRAINING_QUIZ)</h3>
+                <p class="admin-hint">
+                    Управляет генерацией вопросов и оценкой ответов после теории.
+                    Должен возвращать строгий JSON:
+                    <code>{verdict, explanation, next_question, done}</code>.
+                </p>
+                <div class="admin-card">
+                    <label class="admin-label" for="quiz_prompt">QUIZ — генерация и проверка вопросов</label>
+                    <textarea id="quiz_prompt" name="quiz_prompt" rows="20">{{ quiz_prompt }}</textarea>
+                </div>
+        </section>
+
+        {# ============================================================ #}
+        {# Вкладка 2: Общие промпты (внутри той же формы) #}
+        {# ============================================================ #}
+        <section class="admin-section admin-tab-panel admin-tab-panel--common" role="tabpanel">
+            <header class="admin-section__head">
+                <h2 class="admin-section__title">Общие промпты</h2>
+                <p class="admin-section__hint">
+                    Применяются ко всем кейсам и режимам.
+                </p>
+            </header>
+
+            <div class="admin-card">
+                <label class="admin-label" for="system_prompt">System prompt (поверх любого режима)</label>
+                <textarea id="system_prompt" name="system_prompt" rows="4"
+                    placeholder="Можно оставить пустым">{{ system_prompt }}</textarea>
+            </div>
+
+            <div class="admin-card">
+                <label class="admin-label" for="stage_director_prompt">StageDirector — судья перехода между
+                    стадиями</label>
+                <p class="admin-hint">
+                    Решает, когда заканчивать TRAINING / EXAMPLE / PRACTICE / KNOWLEDGE.
+                    Возвращает строгий JSON <code>{done, outcome, reason}</code>.
+                </p>
+                <textarea class="admin-textarea admin-textarea--lg" id="stage_director_prompt"
+                    name="stage_director_prompt" rows="14">{{ stage_director_prompt }}</textarea>
+            </div>
+
+            <details class="admin-collapse">
+                <summary class="admin-collapse__summary">
+                    Служебные сообщения тренажёра
+                    <span class="admin-collapse__meta">статические реплики наставника между стадиями</span>
+                </summary>
+                <div class="admin-collapse__body">
+                    {% for item in items %}
+                    <div class="admin-card {% if item.dynamic %}admin-card-readonly{% endif %}">
+                        <div class="admin-row">
+                            <label class="admin-label" for="tpl__{{ item.key }}">{{ item.label }}</label>
+                            {% if item.dynamic %}
+                            <span class="admin-badge">динамическое · правится в коде/промптах режимов</span>
+                            {% endif %}
+                        </div>
+                        {% if item.dynamic %}
+                        <textarea id="tpl__{{ item.key }}" rows="2" disabled
+                            placeholder="Формируется из контекста сессии"></textarea>
+                        {% else %}
+                        <textarea id="tpl__{{ item.key }}" name="tpl__{{ item.key }}"
+                            rows="3">{{ item.text }}</textarea>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </details>
+
+            <div class="admin-actions">
+                <button type="submit" class="btn btn-primary">Сохранить промпты</button>
+            </div>
+            </form>
+        </section>
+    </main>
+</body>
+
+</html>

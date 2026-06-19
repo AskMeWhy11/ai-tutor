@@ -1,0 +1,73 @@
+# ============================================================
+# Pre-commit hooks
+# https://pre-commit.com/
+#
+# Установка (один раз после clone):
+#   poetry run pre-commit install
+#
+# Ручной запуск по всем файлам:
+#   poetry run pre-commit run --all-files
+#
+# Обновление версий хуков:
+#   poetry run pre-commit autoupdate
+# ============================================================
+
+repos:
+  # --- Базовые проверки файлов ---
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        exclude: ^example/
+        description: Валидация синтаксиса YAML
+      - id: check-toml
+        exclude: ^example/
+        description: Валидация синтаксиса TOML
+      - id: check-json
+        exclude: ^(\.vscode/|example/)
+        description: Валидация синтаксиса JSON
+      - id: check-merge-conflict
+        exclude: ^example/
+        description: Не допускать маркеров merge-conflict
+      - id: check-added-large-files
+        exclude: ^example/
+        description: Блокировать файлы >500 КБ
+        args: ['--maxkb=500']
+      - id: end-of-file-fixer
+        exclude: ^example/
+        description: Гарантировать перевод строки в конце файла
+      - id: trailing-whitespace
+        exclude: ^example/
+        description: Удалять пробелы в конце строк
+        args: ['--markdown-linebreak-ext=md']
+      - id: mixed-line-ending
+        exclude: ^example/
+        description: Унифицировать переводы строк
+        args: ['--fix=lf']
+
+  # --- Ruff: линтер + форматер ---
+  # Используем официальный pre-commit mirror ruff-pre-commit.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      # Сначала линтер (с автофиксом)
+      - id: ruff
+        args: [--fix]
+        description: Ruff lint (PEP 8, bugs, imports, etc.)
+      # Потом форматер
+      - id: ruff-format
+        description: Ruff code formatter
+
+  # --- Mypy: проверка типов ---
+  # Запускаем mypy ЛОКАЛЬНО (а не через pre-commit-owned venv),
+  # чтобы он видел все наши зависимости из poetry.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict)
+        entry: poetry run mypy
+        language: system
+        types: [python]
+        # Передаём только папки из конфига pyproject.toml
+        pass_filenames: false
+        args: []

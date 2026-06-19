@@ -1,0 +1,338 @@
+.admin {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 24px 20px 64px;
+}
+.admin-h2 {
+    margin: 24px 0 12px;
+    font-size: 18px;
+}
+.admin-h3 {
+    margin: 18px 0 10px;
+    font-size: 15px;
+    color: var(--fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.admin-flash {
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    background: #e6f4ea;
+    color: #1f6f3a;
+    border: 1px solid #b9dfc4;
+}
+.admin-hint {
+    margin: 4px 0 10px;
+    color: var(--fg-muted);
+    font-size: 13px;
+}
+
+/* ---------- Табы (CSS-only, на input:radio) ---------- */
+.admin-tab-input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+.admin-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0px;
+    margin: 0;
+    position: relative;
+    z-index: 1;
+}
+.admin-tab {
+    padding: 10px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--fg-muted);
+    cursor: pointer;
+    background: #f1f3f5;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    user-select: none;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.admin-tab:hover {
+    color: var(--brand-dark);
+    background: #eaeef2;
+}
+
+.admin-tab-panel { display: none; }
+
+#admin-tab-case:checked ~ .admin-tabs .admin-tab[for="admin-tab-case"],
+#admin-tab-common:checked ~ .admin-tabs .admin-tab[for="admin-tab-common"] {
+    color: var(--brand-dark);
+    background: var(--bg-card);
+    /* визуально склеиваем таб с панелью */
+    box-shadow: 0 1px 0 0 var(--bg-card);
+}
+#admin-tab-case:checked ~ .admin-tab-panel--case,
+#admin-tab-common:checked ~ .admin-tab-panel--common {
+    display: block;
+}
+
+/* ---------- Секции (группы промптов) ---------- */
+.admin-section {
+    border: 1px solid var(--border);
+    border-radius: 0 var(--radius) var(--radius) var(--radius);
+    background: var(--bg-card);
+    box-shadow: var(--shadow);
+    padding: 22px 20px 16px;
+    margin: 0 0 24px;
+}
+
+.admin-section__head {
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed var(--border);
+}
+.admin-section__title {
+    margin: 0 0 4px;
+    font-size: 18px;
+}
+.admin-section__hint {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 13px;
+}
+
+/* ---------- Карточки полей ---------- */
+.admin-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+}
+.admin-section .admin-card {
+    box-shadow: none;
+    background: #fff;
+}
+.admin-card-readonly { opacity: 0.7; }
+.admin-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+}
+.admin-label {
+    font-weight: 600;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 13px;
+    color: var(--brand-dark);
+}
+.admin-badge {
+    font-size: 12px;
+    color: var(--fg-muted);
+    background: #eef2f7;
+    border: 1px solid var(--border);
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+/* ---------- Текстовые поля ---------- */
+.admin textarea {
+    width: 100%;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    resize: vertical;
+    box-sizing: border-box;
+    min-height: 80px;
+    background: #fff;
+    color: var(--fg);
+}
+.admin textarea:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(124, 77, 255, 0.15);
+}
+.admin textarea:disabled {
+    background: #f6f8fa;
+    color: var(--fg-muted);
+    cursor: not-allowed;
+}
+/* большие промпт-поля */
+.admin-textarea--lg {
+    min-height: 280px;
+}
+/* лейбл — блочно, чтобы textarea был на новой строке на всю ширину */
+.admin-card > .admin-label {
+    display: block;
+    margin-bottom: 8px;
+}
+
+/* ---------- Свёрнутый блок системных шаблонов ---------- */
+.admin-collapse {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fafbfc;
+    margin-bottom: 24px;
+}
+.admin-collapse__summary {
+    cursor: pointer;
+    padding: 12px 16px;
+    font-size: 14px;
+    color: var(--fg-muted);
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    user-select: none;
+}
+.admin-collapse__summary::-webkit-details-marker { display: none; }
+.admin-collapse__summary::before {
+    content: "▸";
+    font-size: 12px;
+    color: var(--fg-muted);
+    transition: transform 0.15s ease;
+}
+.admin-collapse[open] > .admin-collapse__summary::before {
+    transform: rotate(90deg);
+}
+.admin-collapse__meta {
+    font-size: 12px;
+    color: var(--fg-muted);
+}
+.admin-collapse__body {
+    padding: 8px 16px 16px;
+    border-top: 1px solid var(--border);
+}
+
+/* ---------- Кнопки/топбар ---------- */
+.admin-actions {
+    margin-top: 20px;
+    display: flex;
+    justify-content: flex-end;
+}
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-card);
+}
+.topbar h1 { margin: 0; font-size: 18px; }
+
+/* ---------- Кнопки доп. ---------- */
+.btn-warn {
+    background: #fff4e5;
+    color: #8a4b00;
+    border: 1px solid #f1c27d;
+}
+.btn-warn:hover { background: #ffe9c8; }
+
+.admin-row-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.admin-inline-form {
+    display: inline;
+    margin: 0;
+}
+.admin-upload {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border);
+}
+
+/* ---------- Редактор чек-листа ---------- */
+.admin-checklist {
+    margin-bottom: 28px;
+}
+.admin-zone {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    background: #fbfcfd;
+}
+.admin-zone__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+}
+.admin-zone__title {
+    margin: 0;
+    font-size: 15px;
+}
+.admin-zone__key code {
+    font-size: 12px;
+    color: var(--fg-muted);
+}
+.admin-zone__empty {
+    margin: 6px 0 12px;
+}
+.admin-zone__actions {
+    margin-top: 8px;
+    display: flex;
+    justify-content: flex-start;
+}
+
+.admin-cl-item {
+    background: #fff;
+}
+.admin-sublabel {
+    display: block;
+    font-size: 12px;
+    color: var(--fg-muted);
+    margin: 8px 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.admin-input {
+    width: 100%;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+.admin-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: 12px;
+}
+@media (max-width: 640px) {
+    .admin-grid-2 { grid-template-columns: 1fr; }
+}
+.admin-delete {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #a23a3a;
+    cursor: pointer;
+    user-select: none;
+}
+
+/* ---------- Вложенные аккордеоны ---------- */
+.admin-collapse--outer {
+    background: #f4f6f8;
+}
+.admin-collapse--outer > .admin-collapse__summary {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--fg);
+}
+.admin-collapse .admin-collapse {
+    margin: 12px 0;
+    background: #fff;
+}

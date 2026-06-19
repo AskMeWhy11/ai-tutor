@@ -1,0 +1,341 @@
+"""Админ-роуты для редактирования промпт-шаблонов и промптов режимов."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+
+from domain.states import FSMState, Mode
+from domain.types import ZONE_ORDER
+from infrastructure.content.case_loader import (
+    case_dir,
+    default_case_dir,
+    invalidate_case_cache,
+    read_checklist_raw,
+    restore_default,
+    write_checklist_raw,
+)
+from infrastructure.llm.prompt_store import (
+    DYNAMIC_STATES,
+    EDITABLE_STATES,
+    PromptStore,
+)
+from infrastructure.web.security import require_admin
+
+logger = logging.getLogger(__name__)
+
+_MODE_LABELS: dict[Mode, str] = {
+    Mode.TRAINING: "TRAINING — наставник, рассказывает теорию",
+    Mode.EXAMPLE: "EXAMPLE — играет роль сотрудника банка (сотрудник = клиент)",
+    Mode.PRACTICE: "PRACTICE — играет роль клиента (сотрудник = продавец)",
+    Mode.KNOWLEDGE: "KNOWLEDGE — наставник, прокачивает западающие зоны",
+}
+
+_ZONE_LABELS: dict[str, str] = {
+    "needs": "Выявление потребности",
+    "pitch": "Презентация продукта",
+    "conditions": "Условия и возражения",
+}
+
+_ALLOWED_CASES: frozenset[str] = frozenset({"cc_novichok"})
+_ALLOWED_FILES: dict[str, str] = {
+    "dialogues": "dialogues.md",
+    "facts": "facts.md",
+    "checklist": "checklist.json",
+}
+_MAX_UPLOAD_BYTES: int = 1 * 1024 * 1024  # 1 МБ
+
+
+def _store(request: Request) -> PromptStore:
+    store: PromptStore | None = getattr(request.app.state, "prompt_store", None)
+    if store is None:
+        raise HTTPException(status_code=500, detail="PromptStore is not configured")
+    return store
+
+
+def _build_items(snap: Any) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for s in EDITABLE_STATES:
+        items.append(
+            {
+                "key": s.value,
+                "label": s.value,
+                "text": snap.templates.get(s, ""),
+                "dynamic": False,
+            }
+        )
+    for s in DYNAMIC_STATES:
+        items.append({"key": s.value, "label": s.value, "text": "", "dynamic": True})
+    return items
+
+
+def _build_modes(snap: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "key": m.value,
+            "label": _MODE_LABELS[m],
+            "text": snap.mode_prompts.get(m, ""),
+        }
+        for m in Mode
+    ]
+
+
+def _build_checklist_view(case_id: str) -> list[dict[str, Any]]:
+    raw = read_checklist_raw(case_id)
+    return [
+        {
+            "key": zone,
+            "label": _ZONE_LABELS.get(zone, zone),
+            "entries": raw.get(zone, []),  # ← было "items"
+        }
+        for zone in ZONE_ORDER
+    ]
+
+
+def _has_default(case_id: str, filename: str) -> bool:
+    return (default_case_dir(case_id) / filename).exists()
+
+
+def _resolve_case_file(case_id: str, file_key: str) -> tuple[str, Any]:
+    if case_id not in _ALLOWED_CASES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown case")
+    filename = _ALLOWED_FILES.get(file_key)
+    if filename is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown file")
+    return filename, case_dir(case_id) / filename
+
+
+def _parse_lines(raw: str) -> list[str]:
+    """Превратить многострочный textarea в список непустых строк."""
+    return [line.strip() for line in raw.replace("\r", "").split("\n") if line.strip()]
+
+
+def _parse_checklist_form(
+    form_items: list[tuple[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Распарсить поля cl__{zone}__{idx}__{field} из формы.
+
+    Поддерживает удаление: если есть `delete__{zone}__{idx}=on`, элемент пропускается.
+    Возвращает словарь зон → отсортированный по idx список элементов.
+    """
+    buckets: dict[str, dict[int, dict[str, Any]]] = {z: {} for z in ZONE_ORDER}
+    deletes: set[tuple[str, int]] = set()
+
+    for name, value in form_items:
+        if name.startswith("delete__"):
+            try:
+                _, zone, idx_s = name.split("__", 2)
+            except ValueError:
+                continue
+            if zone not in buckets:
+                continue
+            try:
+                deletes.add((zone, int(idx_s)))
+            except ValueError:
+                continue
+            continue
+
+        if not name.startswith("cl__"):
+            continue
+        try:
+            _, zone, idx_s, field = name.split("__", 3)
+        except ValueError:
+            continue
+        if zone not in buckets:
+            continue
+        try:
+            idx = int(idx_s)
+        except ValueError:
+            continue
+
+        item = buckets[zone].setdefault(idx, {})
+        sval = str(value)
+        if field in {"example_phrases", "keywords"}:
+            item[field] = _parse_lines(sval)
+        elif field in {"id", "name", "criteria"}:
+            item[field] = sval.strip()
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for zone, by_idx in buckets.items():
+        ordered: list[dict[str, Any]] = []
+        for idx in sorted(by_idx.keys()):
+            if (zone, idx) in deletes:
+                continue
+            it = by_idx[idx]
+            # Минимальная нормализация
+            it.setdefault("id", "")
+            it.setdefault("name", "")
+            it.setdefault("criteria", "")
+            it.setdefault("example_phrases", [])
+            it.setdefault("keywords", [])
+            ordered.append(it)
+        out[zone] = ordered
+    return out
+
+
+def build_admin_router() -> APIRouter:
+    router = APIRouter(
+        prefix="/admin",
+        tags=["admin"],
+        dependencies=[Depends(require_admin)],
+    )
+
+    @router.get("/prompts", response_class=HTMLResponse)
+    def get_prompts(request: Request, saved: int = 0, case_saved: str = "") -> Any:
+        store = _store(request)
+        snap = store.snapshot()
+        templates = request.app.state.templates
+
+        defaults_available = {
+            key: _has_default("cc_novichok", filename) for key, filename in _ALLOWED_FILES.items()
+        }
+
+        return templates.TemplateResponse(
+            request,
+            "admin_prompts.html",
+            {
+                "system_prompt": snap.system_prompt,
+                "items": _build_items(snap),
+                "modes": _build_modes(snap),
+                "quiz_prompt": snap.quiz_prompt,
+                "stage_director_prompt": snap.stage_director_prompt,
+                "saved": bool(saved),
+                "case_saved": case_saved,
+                "checklist_zones": _build_checklist_view("cc_novichok"),
+                "defaults_available": defaults_available,
+            },
+        )
+
+    @router.post("/prompts")
+    async def update_prompts(request: Request) -> Any:
+        store = _store(request)
+        form = await request.form()
+
+        system_prompt = str(form.get("system_prompt", ""))
+        quiz_prompt = str(form.get("quiz_prompt", ""))
+        stage_director_prompt = str(form.get("stage_director_prompt", ""))
+
+        editable_names = {s.value: s for s in EDITABLE_STATES}
+        templates: dict[FSMState, str] = {}
+        mode_names = {m.value: m for m in Mode}
+        mode_prompts: dict[Mode, str] = {}
+
+        for raw_name, raw_value in form.multi_items():
+            if raw_name.startswith("tpl__"):
+                state = editable_names.get(raw_name[len("tpl__") :])
+                if state is None:
+                    continue
+                templates[state] = str(raw_value)
+            elif raw_name.startswith("mode__"):
+                mode = mode_names.get(raw_name[len("mode__") :])
+                if mode is None:
+                    continue
+                mode_prompts[mode] = str(raw_value)
+
+        store.replace_all(
+            system_prompt=system_prompt,
+            templates=templates,
+            mode_prompts=mode_prompts,
+            quiz_prompt=quiz_prompt,
+            stage_director_prompt=stage_director_prompt,
+        )
+        return RedirectResponse(url="/admin/prompts?saved=1", status_code=303)
+
+    # ---------- Файлы кейса: download / upload / restore ----------
+
+    @router.get("/case/{case_id}/{file_key}")
+    def download_case_file(case_id: str, file_key: str) -> FileResponse:
+        filename, path = _resolve_case_file(case_id, file_key)
+        if not path.exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+        media = (
+            "application/json; charset=utf-8"
+            if filename.endswith(".json")
+            else "text/markdown; charset=utf-8"
+        )
+        return FileResponse(path=path, media_type=media, filename=filename)
+
+    @router.post("/case/{case_id}/{file_key}")
+    async def upload_case_file(
+        case_id: str,
+        file_key: str,
+        file: UploadFile,
+    ) -> RedirectResponse:
+        filename, path = _resolve_case_file(case_id, file_key)
+        data = await file.read()
+        if len(data) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"File too large (>{_MAX_UPLOAD_BYTES} bytes)",
+            )
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be UTF-8 encoded",
+            ) from exc
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        invalidate_case_cache(case_id)
+        logger.info("Case file updated: %s/%s (%d bytes)", case_id, filename, len(data))
+        return RedirectResponse(
+            url=f"/admin/prompts?case_saved={file_key}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @router.post("/case/{case_id}/{file_key}/restore")
+    def restore_case_file(case_id: str, file_key: str) -> RedirectResponse:
+        filename, _ = _resolve_case_file(case_id, file_key)
+        ok = restore_default(case_id, filename)
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Default file not found",
+            )
+        return RedirectResponse(
+            url=f"/admin/prompts?case_saved={file_key}-restored",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    # ---------- Чек-лист: сохранение / добавление / удаление ----------
+
+    @router.post("/case/{case_id}/checklist/edit")
+    async def save_checklist(case_id: str, request: Request) -> RedirectResponse:
+        if case_id not in _ALLOWED_CASES:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown case")
+        form = await request.form()
+        items = list(form.multi_items())
+
+        # Если нажата кнопка add_zone — добавляем пустой элемент в нужную зону.
+        add_zone: str | None = None
+        for name, value in items:
+            if name == "action" and str(value).startswith("add_"):
+                candidate = str(value)[len("add_") :]
+                if candidate in ZONE_ORDER:
+                    add_zone = candidate
+                    break
+
+        parsed = _parse_checklist_form(items)
+        if add_zone is not None:
+            parsed.setdefault(add_zone, []).append(
+                {
+                    "id": "",
+                    "name": "",
+                    "criteria": "",
+                    "example_phrases": [],
+                    "keywords": [],
+                }
+            )
+
+        write_checklist_raw(case_id, parsed)
+        suffix = "checklist-added" if add_zone else "checklist"
+        return RedirectResponse(
+            url=f"/admin/prompts?case_saved={suffix}#checklist",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    return router

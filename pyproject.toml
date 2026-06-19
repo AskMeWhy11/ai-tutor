@@ -1,0 +1,95 @@
+[project]
+name = "ai-tutor"
+version = "0.1.0"
+description = "AI-наставник для обучения клиентских менеджеров банка"
+authors = [
+    {name = "AskMeWhy11", email = "pravdin.m16@yandex.ru"}
+]
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.32,<1.0",
+    "jinja2>=3.1,<4.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.5,<3.0",
+    "httpx>=0.27,<1.0",
+    "python-multipart (>=0.0.27,<0.0.28)",
+    "gigachat>=0.1.40,<1.0",
+]
+
+[tool.poetry]
+package-mode = false
+packages = [{ include = "*", from = "src" }]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3"
+pytest-cov = "^6.0"
+pytest-asyncio = "^0.24"
+httpx = "^0.27"
+ruff = "^0.8"
+mypy = "^1.13"
+pre-commit = "^4.0"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+force-exclude = true
+extend-exclude = [".venv", "example"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = []
+allowed-confusables = [
+    "а", "б", "в", "г", "е", "з", "к", "м", "н", "о", "р", "с", "т", "у", "х",
+    "А", "В", "Е", "З", "К", "М", "Н", "О", "Р", "С", "Т", "У", "Х",
+    "Ь", "–",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unused_ignores = true
+check_untyped_defs = true
+mypy_path = "src"
+packages = ["domain", "application", "infrastructure", "composition", "tests"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "gigachat.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+addopts = ["-v", "--strict-markers", "--tb=short"]
+markers = [
+    "unit: unit-тесты (быстрые, без внешних зависимостей)",
+    "integration: интеграционные тесты (web, БД)",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

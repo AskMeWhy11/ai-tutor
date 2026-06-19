@@ -1,0 +1,204 @@
+"""GigaChat-реализация QuizDirector.
+
+LLM получает:
+- системный промпт квиза (редактируется в админке),
+- фактологию из контента,
+- историю квиза (ctx.quiz_question_index, last_answer_correct),
+- последний ответ сотрудника.
+
+Возвращает строгий JSON:
+{
+  "verdict": "correct" | "incorrect" | "none",
+  "explanation": "<пусто или разъяснение>",
+  "next_question": "<следующий вопрос или пусто>",
+  "done": true | false
+}
+
+Promпт должен сам контролировать критерий завершения (например, «3 правильных
+ответа всего»). FSM закроет квиз через ctx.quiz_target_questions, как только
+LLM вернёт done=true.
+
+Fallback — StubQuizDirector.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import TYPE_CHECKING
+
+from application.ports.quiz_director import QuizDirector, QuizTurn
+from domain.context import SessionContext
+from infrastructure.content.cc_novichok import TRAINING_BLOCKS
+from infrastructure.llm.prompt_store import PromptStore
+
+if TYPE_CHECKING:
+    from gigachat import GigaChat
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["GigaChatQuizDirector"]
+
+
+_USER_TEMPLATE = """\
+Сотрудник: {employee}
+Цикл практики: {cycle}
+Уже задано вопросов: {asked}
+Правильных ответов всего: {correct_count}
+
+Последний ответ сотрудника:
+---
+{user_text}
+---
+
+ФАКТОЛОГИЯ ПРОДУКТА:
+{factology}
+
+Верни СТРОГО JSON в формате:
+{{"verdict": "correct"|"incorrect"|"none",
+  "explanation": "<разъяснение, если verdict=incorrect; иначе пусто>",
+  "next_question": "<следующий вопрос или пусто, если done=true>",
+  "done": true|false}}
+Без markdown-обёртки, без комментариев."""
+
+
+_KICKOFF_TEMPLATE = """\
+Сотрудник: {employee}
+Цикл практики: {cycle}
+
+Это начало квиза — сотрудник только что закончил теорию.
+Сформулируй ПЕРВЫЙ проверочный вопрос по фактологии.
+
+ФАКТОЛОГИЯ ПРОДУКТА:
+{factology}
+
+Верни СТРОГО JSON:
+{{"verdict": "none", "explanation": "", "next_question": "<вопрос>", "done": false}}
+Без markdown-обёртки."""
+
+
+def _build_factology() -> str:
+    """Сжатая фактология для контекста LLM-квиза."""
+    lines: list[str] = []
+    for i, block in enumerate(TRAINING_BLOCKS, start=1):
+        lines.append(f"{i}. {block.text}")
+    return "\n\n".join(lines)
+
+
+class GigaChatQuizDirector(QuizDirector):
+    def __init__(
+        self,
+        client: GigaChat,
+        prompt_store: PromptStore,
+        fallback: QuizDirector,
+        model: str | None = None,
+    ) -> None:
+        self._client = client
+        self._prompts = prompt_store
+        self._fallback = fallback
+        self._model = model
+
+    async def next_turn(
+        self,
+        ctx: SessionContext,
+        user_text: str | None,
+    ) -> QuizTurn:
+        system_prompt = self._prompts.get_quiz_prompt().strip()
+        if not system_prompt:
+            logger.info("quiz_prompt пуст — fallback на StubQuizDirector")
+            return await self._fallback.next_turn(ctx, user_text)
+
+        factology = _build_factology()
+        correct_count = self._count_correct(ctx)
+
+        if user_text is None or not user_text.strip():
+            user_msg = _KICKOFF_TEMPLATE.format(
+                employee=ctx.employee_name or "сотрудник",
+                cycle=ctx.cycle_count,
+                factology=factology,
+            )
+        else:
+            user_msg = _USER_TEMPLATE.format(
+                employee=ctx.employee_name or "сотрудник",
+                cycle=ctx.cycle_count,
+                asked=ctx.quiz_question_index + 1,
+                correct_count=correct_count,
+                user_text=user_text.strip(),
+                factology=factology,
+            )
+
+        try:
+            raw = await self._chat(
+                [
+                    ("system", system_prompt),
+                    ("user", user_msg),
+                ]
+            )
+        except Exception:
+            logger.exception("LLM quiz director failed, fallback")
+            return await self._fallback.next_turn(ctx, user_text)
+
+        parsed = _extract_json(raw)
+        if parsed is None:
+            logger.warning("quiz director: unparseable response %r → fallback", raw)
+            return await self._fallback.next_turn(ctx, user_text)
+
+        verdict_raw = str(parsed.get("verdict") or "none").lower()
+        if verdict_raw not in ("correct", "incorrect", "none"):
+            verdict_raw = "none"
+
+        return QuizTurn(
+            verdict=verdict_raw,  # type: ignore[arg-type]
+            explanation=str(parsed.get("explanation") or "").strip(),
+            next_question=str(parsed.get("next_question") or "").strip(),
+            done=bool(parsed.get("done", False)),
+        )
+
+    @staticmethod
+    def _count_correct(ctx: SessionContext) -> int:
+        """Грубая оценка количества правильных ответов до текущего хода.
+
+        FSM не хранит явный счётчик «всего правильных», но при каждом верном
+        ответе инкрементирует quiz_question_index. При неверном — индекс
+        не растёт, идёт ремедиация. Поэтому quiz_question_index ≈ число
+        правильных ответов в текущем прогоне.
+        """
+        return ctx.quiz_question_index
+
+    async def _chat(self, messages: list[tuple[str, str]]) -> str:
+        from gigachat.models import Chat, Messages, MessagesRole
+
+        role_map = {
+            "system": MessagesRole.SYSTEM,
+            "user": MessagesRole.USER,
+        }
+        payload = Chat(
+            messages=[Messages(role=role_map[role], content=content) for role, content in messages],
+        )
+        if self._model:
+            payload.model = self._model
+        resp = await self._client.achat(payload)
+        choices = getattr(resp, "choices", None) or []
+        if not choices:
+            return ""
+        message = getattr(choices[0], "message", None)
+        return str(getattr(message, "content", "") if message else "").strip()
+
+
+def _extract_json(raw: str) -> dict[str, object] | None:
+    if not raw:
+        return None
+    try:
+        obj = json.loads(raw)
+        return obj if isinstance(obj, dict) else None
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if not match:
+        return None
+    try:
+        obj = json.loads(match.group(0))
+        return obj if isinstance(obj, dict) else None
+    except json.JSONDecodeError:
+        return None

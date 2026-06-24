@@ -32,7 +32,7 @@ repos:
       - id: check-added-large-files
         exclude: ^example/
         description: Блокировать файлы >500 КБ
-        args: ['--maxkb=500']
+        args: ['--maxkb=1024']
       - id: end-of-file-fixer
         exclude: ^example/
         description: Гарантировать перевод строки в конце файла

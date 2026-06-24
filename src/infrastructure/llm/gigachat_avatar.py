@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from domain.context import SessionContext
 from domain.states import FSMState, Mode
+from infrastructure.content.case_loader import load_case, resolve_case_id
 from infrastructure.llm.prompt_store import PromptStore
 from infrastructure.llm.stub_avatar import StubAvatar
 
@@ -115,7 +116,7 @@ class GigaChatAvatar:
         state: FSMState,
         ctx: SessionContext,
     ) -> str:
-        mode_prompt = self._prompts.get_mode_prompt(mode).strip()
+        mode_prompt = self._prompts.get_mode_prompt(mode, ctx.product_id).strip()
         if not mode_prompt:
             logger.info("mode_prompt пуст для %s — fallback на stub", mode)
             return await self._fallback.next_message(state, ctx)
@@ -160,9 +161,18 @@ class GigaChatAvatar:
         if ctx.weak_zones_remaining:
             ctx_block += f"- западающие зоны: {', '.join(ctx.weak_zones_remaining)}\n"
 
+        case = load_case(resolve_case_id(ctx.product_id))
+        content_block = ""
+        if case.facts:
+            content_block += f"\n\nФАКТОЛОГИЯ КЕЙСА:\n{case.facts}"
+        if case.dialogues:
+            content_block += f"\n\nОБРАЗЦОВЫЕ ДИАЛОГИ КЕЙСА:\n{case.dialogues}"
+
+        parts = [mode_prompt, ctx_block, content_block]
         if global_prompt:
-            return f"{global_prompt}\n\n{mode_prompt}{ctx_block}"
-        return f"{mode_prompt}{ctx_block}"
+            parts.insert(0, f"{global_prompt}\n\n")
+            return "".join(parts)
+        return "".join(parts)
 
     # ------------------------------------------------------------------
     # Статичные состояния — перефразирование

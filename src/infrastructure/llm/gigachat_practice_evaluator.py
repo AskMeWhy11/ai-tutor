@@ -2,6 +2,9 @@
 
 LLM получает чек-лист по 3 зонам и историю диалога, возвращает JSON со
 списком невыполненных зон. Fallback — stub-оценщик по keywords.
+
+Чек-лист берётся из контента кейса (load_case(case_id).checklist); если
+у кейса нет чек-листа — статический CHECKLIST из cc_novichok.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from application.ports.practice_evaluator import PracticeEvaluator
 from domain.types import ZONE_ORDER, ChatMessage, Zone
+from infrastructure.content.case_loader import load_case, resolve_case_id
 from infrastructure.content.checklists.cc_novichok import CHECKLIST, zone_label
 
 if TYPE_CHECKING:
@@ -55,7 +59,12 @@ class GigaChatPracticeEvaluator(PracticeEvaluator):
         self._fallback = fallback
         self._model = model
 
-    async def evaluate(self, history: tuple[ChatMessage, ...]) -> tuple[Zone, ...]:
+    async def evaluate(
+        self,
+        history: tuple[ChatMessage, ...],
+        *,
+        case_id: str | None = None,
+    ) -> tuple[Zone, ...]:
         if not any(m.role == "user" for m in history):
             # Сотрудник не сказал ничего — все зоны западают.
             return ZONE_ORDER
@@ -63,22 +72,22 @@ class GigaChatPracticeEvaluator(PracticeEvaluator):
         try:
             raw = await self._chat(
                 [
-                    ("system", _SYSTEM_PROMPT.format(checklist_block=_format_checklist())),
+                    ("system", _SYSTEM_PROMPT.format(checklist_block=_format_checklist(case_id))),
                     ("user", _format_history(history)),
                 ]
             )
         except Exception:
             logger.exception("LLM evaluator failed, fallback to stub")
-            return await self._fallback.evaluate(history)
+            return await self._fallback.evaluate(history, case_id=case_id)
 
         parsed = _extract_json(raw)
         if parsed is None or "weak_zones" not in parsed:
             logger.warning("LLM evaluator returned unparseable: %r → fallback", raw)
-            return await self._fallback.evaluate(history)
+            return await self._fallback.evaluate(history, case_id=case_id)
 
         raw_zones = parsed.get("weak_zones") or []
         if not isinstance(raw_zones, list):
-            return await self._fallback.evaluate(history)
+            return await self._fallback.evaluate(history, case_id=case_id)
 
         valid: set[str] = set(ZONE_ORDER)
         seen: set[str] = set()
@@ -109,13 +118,21 @@ class GigaChatPracticeEvaluator(PracticeEvaluator):
         return str(getattr(message, "content", "") if message else "").strip()
 
 
-def _format_checklist() -> str:
+def _format_checklist(case_id: str | None) -> str:
+    """Чек-лист по зонам из контента кейса; fallback на статический CHECKLIST."""
+    cid = resolve_case_id(case_id)
+    case_checklist = load_case(cid).checklist
+
     lines: list[str] = []
     for zone in ZONE_ORDER:
-        items = CHECKLIST.get(zone, ())
         lines.append(f"\n[{zone}] — {zone_label(zone)}:")
-        for it in items:
-            lines.append(f"  • {it.id}: {it.name} — {it.criteria}")
+        dto_items = case_checklist.get(zone, ())
+        if dto_items:
+            for dto in dto_items:
+                lines.append(f"  • {dto.id}: {dto.name} — {dto.criteria}")
+        else:
+            for item in CHECKLIST.get(zone, ()):
+                lines.append(f"  • {item.id}: {item.name} — {item.criteria}")
     return "\n".join(lines)
 
 

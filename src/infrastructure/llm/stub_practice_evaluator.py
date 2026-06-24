@@ -5,6 +5,8 @@
 - Для каждой зоны проверяем: есть ли хоть одно keyword из чек-листа этой
   зоны в блобе. Если нет — зона западает.
 - Возвращаем зоны в каноническом порядке ZONE_ORDER.
+
+case_id игнорируется: stub работает на статическом чек-листе cc_novichok.
 """
 
 from __future__ import annotations
@@ -14,7 +16,12 @@ from infrastructure.content.checklists.cc_novichok import keywords_for_zone
 
 
 class StubPracticeEvaluator:
-    async def evaluate(self, history: tuple[ChatMessage, ...]) -> tuple[Zone, ...]:
+    async def evaluate(
+        self,
+        history: tuple[ChatMessage, ...],
+        *,
+        case_id: str | None = None,
+    ) -> tuple[Zone, ...]:
         user_text = " ".join(m.text for m in history if m.role == "user").lower()
         if not user_text.strip():
             # Если сотрудник вообще ничего не сказал — все зоны западают.

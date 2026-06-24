@@ -124,3 +124,7 @@ deploy/certbot/conf/live/
 deploy/certbot/conf/renewal/
 *.cer
 *.pem
+tree.txt
+dump.md
+tree.txt
+dump.md

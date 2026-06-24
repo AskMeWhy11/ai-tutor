@@ -60,7 +60,7 @@ function initStartForm() {
         e.preventDefault();
         const data = new FormData(form);
         const employeeName = String(data.get("employee_name") || "").trim();
-        const productId = String(data.get("product_id") || "kk_novichok");
+        const productId = String(data.get("product_id") || "cc_novichok");
 
         btn.disabled = true;
         btn.textContent = "Запускаю…";

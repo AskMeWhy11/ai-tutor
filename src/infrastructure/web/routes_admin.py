@@ -18,6 +18,11 @@ from infrastructure.content.case_loader import (
     restore_default,
     write_checklist_raw,
 )
+from infrastructure.content.registry import (
+    CASE_REGISTRY,
+    DEFAULT_CASE_ID,
+    available_case_ids,
+)
 from infrastructure.llm.prompt_store import (
     DYNAMIC_STATES,
     EDITABLE_STATES,
@@ -40,13 +45,32 @@ _ZONE_LABELS: dict[str, str] = {
     "conditions": "Условия и возражения",
 }
 
-_ALLOWED_CASES: frozenset[str] = frozenset({"cc_novichok"})
 _ALLOWED_FILES: dict[str, str] = {
     "dialogues": "dialogues.md",
     "facts": "facts.md",
     "checklist": "checklist.json",
 }
 _MAX_UPLOAD_BYTES: int = 1 * 1024 * 1024  # 1 МБ
+
+
+def _allowed_cases() -> frozenset[str]:
+    return available_case_ids()
+
+
+def _resolve_case_id(case_id: str | None) -> str:
+    """Нормализовать выбранный кейс (query/form) к доступному."""
+    if case_id and case_id in _allowed_cases():
+        return case_id
+    return DEFAULT_CASE_ID
+
+
+def _case_options(selected: str) -> list[dict[str, Any]]:
+    allowed = _allowed_cases()
+    return [
+        {"id": c.case_id, "label": c.label, "selected": c.case_id == selected}
+        for c in CASE_REGISTRY
+        if c.case_id in allowed
+    ]
 
 
 def _store(request: Request) -> PromptStore:
@@ -89,7 +113,7 @@ def _build_checklist_view(case_id: str) -> list[dict[str, Any]]:
         {
             "key": zone,
             "label": _ZONE_LABELS.get(zone, zone),
-            "entries": raw.get(zone, []),  # ← было "items"
+            "entries": raw.get(zone, []),
         }
         for zone in ZONE_ORDER
     ]
@@ -100,7 +124,7 @@ def _has_default(case_id: str, filename: str) -> bool:
 
 
 def _resolve_case_file(case_id: str, file_key: str) -> tuple[str, Any]:
-    if case_id not in _ALLOWED_CASES:
+    if case_id not in _allowed_cases():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown case")
     filename = _ALLOWED_FILES.get(file_key)
     if filename is None:
@@ -165,7 +189,6 @@ def _parse_checklist_form(
             if (zone, idx) in deletes:
                 continue
             it = by_idx[idx]
-            # Минимальная нормализация
             it.setdefault("id", "")
             it.setdefault("name", "")
             it.setdefault("criteria", "")
@@ -184,19 +207,30 @@ def build_admin_router() -> APIRouter:
     )
 
     @router.get("/prompts", response_class=HTMLResponse)
-    def get_prompts(request: Request, saved: int = 0, case_saved: str = "") -> Any:
+    def get_prompts(
+        request: Request,
+        case_id: str = "",
+        saved: int = 0,
+        case_saved: str = "",
+    ) -> Any:
         store = _store(request)
-        snap = store.snapshot()
+        cid = _resolve_case_id(case_id)
+        snap = store.snapshot(cid)
         templates = request.app.state.templates
 
         defaults_available = {
-            key: _has_default("cc_novichok", filename) for key, filename in _ALLOWED_FILES.items()
+            key: _has_default(cid, filename) for key, filename in _ALLOWED_FILES.items()
         }
+        cases = _case_options(cid)
+        case_label = next((c["label"] for c in cases if c["id"] == cid), cid)
 
         return templates.TemplateResponse(
             request,
             "admin_prompts.html",
             {
+                "case_id": cid,
+                "case_label": case_label,
+                "cases": cases,
                 "system_prompt": snap.system_prompt,
                 "items": _build_items(snap),
                 "modes": _build_modes(snap),
@@ -204,7 +238,7 @@ def build_admin_router() -> APIRouter:
                 "stage_director_prompt": snap.stage_director_prompt,
                 "saved": bool(saved),
                 "case_saved": case_saved,
-                "checklist_zones": _build_checklist_view("cc_novichok"),
+                "checklist_zones": _build_checklist_view(cid),
                 "defaults_available": defaults_available,
             },
         )
@@ -214,6 +248,7 @@ def build_admin_router() -> APIRouter:
         store = _store(request)
         form = await request.form()
 
+        cid = _resolve_case_id(str(form.get("case_id", "")))
         system_prompt = str(form.get("system_prompt", ""))
         quiz_prompt = str(form.get("quiz_prompt", ""))
         stage_director_prompt = str(form.get("stage_director_prompt", ""))
@@ -241,8 +276,12 @@ def build_admin_router() -> APIRouter:
             mode_prompts=mode_prompts,
             quiz_prompt=quiz_prompt,
             stage_director_prompt=stage_director_prompt,
+            case_id=cid,
         )
-        return RedirectResponse(url="/admin/prompts?saved=1", status_code=303)
+        return RedirectResponse(
+            url=f"/admin/prompts?case_id={cid}&saved=1",
+            status_code=303,
+        )
 
     # ---------- Файлы кейса: download / upload / restore ----------
 
@@ -283,7 +322,7 @@ def build_admin_router() -> APIRouter:
         invalidate_case_cache(case_id)
         logger.info("Case file updated: %s/%s (%d bytes)", case_id, filename, len(data))
         return RedirectResponse(
-            url=f"/admin/prompts?case_saved={file_key}",
+            url=f"/admin/prompts?case_id={case_id}&case_saved={file_key}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -297,7 +336,7 @@ def build_admin_router() -> APIRouter:
                 detail="Default file not found",
             )
         return RedirectResponse(
-            url=f"/admin/prompts?case_saved={file_key}-restored",
+            url=f"/admin/prompts?case_id={case_id}&case_saved={file_key}-restored",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -305,12 +344,11 @@ def build_admin_router() -> APIRouter:
 
     @router.post("/case/{case_id}/checklist/edit")
     async def save_checklist(case_id: str, request: Request) -> RedirectResponse:
-        if case_id not in _ALLOWED_CASES:
+        if case_id not in _allowed_cases():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown case")
         form = await request.form()
         items = list(form.multi_items())
 
-        # Если нажата кнопка add_zone — добавляем пустой элемент в нужную зону.
         add_zone: str | None = None
         for name, value in items:
             if name == "action" and str(value).startswith("add_"):
@@ -334,7 +372,7 @@ def build_admin_router() -> APIRouter:
         write_checklist_raw(case_id, parsed)
         suffix = "checklist-added" if add_zone else "checklist"
         return RedirectResponse(
-            url=f"/admin/prompts?case_saved={suffix}#checklist",
+            url=f"/admin/prompts?case_id={case_id}&case_saved={suffix}#checklist",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

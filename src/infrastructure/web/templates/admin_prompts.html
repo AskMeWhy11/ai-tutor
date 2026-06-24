@@ -15,6 +15,15 @@
     </header>
 
     <main class="admin">
+        <form method="get" action="/admin/prompts" class="admin-case-switch">
+            <label class="admin-label" for="case-switch">Кейс / продукт</label>
+            <select id="case-switch" name="case_id" onchange="this.form.submit()">
+                {% for c in cases %}
+                <option value="{{ c.id }}" {% if c.selected %}selected{% endif %}>{{ c.label }}</option>
+                {% endfor %}
+            </select>
+            <noscript><button type="submit" class="btn">Открыть</button></noscript>
+        </form>
         {% if saved %}
         <div class="admin-flash">Промпты сохранены.</div>
         {% endif %}
@@ -26,7 +35,7 @@
         <input type="radio" name="admin-tab" id="admin-tab-common" class="admin-tab-input">
 
         <nav class="admin-tabs" role="tablist" aria-label="Группы промптов">
-            <label for="admin-tab-case" class="admin-tab" role="tab">Кейс «КК_Новичок»</label>
+            <label for="admin-tab-case" class="admin-tab" role="tab">Кейс «{{ case_label }}»</label>
             <label for="admin-tab-common" class="admin-tab" role="tab">Общие промпты</label>
         </nav>
 
@@ -35,11 +44,11 @@
         {# ============================================================ #}
         <section class="admin-section admin-tab-panel admin-tab-panel--case" role="tabpanel">
             <header class="admin-section__head">
-                <h2 class="admin-section__title">Кейс «КК_Новичок»</h2>
+                <h2 class="admin-section__title">Кейс «{{ case_label }}»</h2>
                 <p class="admin-section__hint">
-                    Промпты, специфичные для продукта «Кредитная карта».
+                    Промпты, специфичные для выбранного продукта.
                     Используют фактологию и образцовые диалоги из
-                    <code>content/cases/cc_novichok/</code>.
+                    <code>content/cases/{{ case_id }}/</code>.
                 </p>
             </header>
 
@@ -76,9 +85,9 @@
                                 <div class="admin-row">
                                     <label class="admin-label">{{ f.label }}</label>
                                     <div class="admin-row-actions">
-                                        <a class="btn" href="/admin/case/cc_novichok/{{ f.key }}" download>Скачать</a>
+                                        <a class="btn" href="/admin/case/{{ case_id }}/{{ f.key }}" download>Скачать</a>
                                         {% if defaults_available.get(f.key) %}
-                                        <form method="post" action="/admin/case/cc_novichok/{{ f.key }}/restore"
+                                        <form method="post" action="/admin/case/{{ case_id }}/{{ f.key }}/restore"
                                             class="admin-inline-form"
                                             onsubmit="return confirm('Восстановить {{ f.filename }} из значения по умолчанию? Текущая версия будет перезаписана.');">
                                             <button type="submit" class="btn btn-warn">Восстановить по
@@ -90,7 +99,7 @@
                                         {% endif %}
                                     </div>
                                 </div>
-                                <form method="post" action="/admin/case/cc_novichok/{{ f.key }}"
+                                <form method="post" action="/admin/case/{{ case_id }}/{{ f.key }}"
                                     enctype="multipart/form-data" class="admin-upload">
                                     <input type="file" name="file"
                                         accept="{% if f.key == 'checklist' %}.json,application/json{% else %}.md,text/markdown,text/plain{% endif %}"
@@ -116,7 +125,7 @@
                                 и <code>keywords</code> вводятся по одной строке на запись.
                             </p>
 
-                            <form method="post" action="/admin/case/cc_novichok/checklist/edit"
+                            <form method="post" action="/admin/case/{{ case_id }}/checklist/edit"
                                 class="admin-form admin-checklist">
                                 {% for zone in checklist_zones %}
                                 <div class="admin-zone">
@@ -185,6 +194,7 @@
 
             {# ===== Промпты режимов / квиз ===== #}
             <form method="post" action="/admin/prompts" class="admin-form">
+                <input type="hidden" name="case_id" value="{{ case_id }}">
                 <h3 class="admin-h3">Режимы диалога (LLM-аватар)</h3>
                 {% for mode in modes %}
                 <div class="admin-card">

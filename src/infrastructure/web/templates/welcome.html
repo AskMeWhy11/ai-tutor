@@ -45,9 +45,12 @@
                 <label class="field">
                     <span class="field-label">Продукт</span>
                     <select name="product_id" id="field-product" required>
-                        <option value="kk_novichok" selected>Кредитная карта (КК_Новичок)</option>
-                        <option value="debit_card" disabled>Дебетовая карта — скоро</option>
-                        <option value="mortgage" disabled>Ипотека — скоро</option>
+                        {% for p in products %}
+                        <option value="{{ p.id }}"
+                                {% if p.available %}{% if loop.first %}selected{% endif %}{% else %}disabled{% endif %}>
+                            {{ p.label }}{% if not p.available %} — скоро{% endif %}
+                        </option>
+                        {% endfor %}
                     </select>
                 </label>
 

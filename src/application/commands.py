@@ -18,7 +18,7 @@ class ResumeChoice:
 @dataclass(frozen=True)
 class StartTraining:
     employee_name: str = ""
-    product_id: str = "kk_novichok"
+    product_id: str = "cc_novichok"
 
 
 ModeChoice = Literal["training", "example", "practice", "knowledge"]

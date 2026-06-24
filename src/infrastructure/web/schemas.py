@@ -5,7 +5,15 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from infrastructure.content.registry import DEFAULT_CASE_ID, available_case_ids
+
+
+def _validate_product_id(value: str) -> str:
+    if value not in available_case_ids():
+        raise ValueError(f"Недоступный product_id: {value!r}")
+    return value
 
 
 class StartSessionCmd(BaseModel):
@@ -20,7 +28,12 @@ class ResumeChoiceCmd(BaseModel):
 class StartTrainingCmd(BaseModel):
     type: Literal["start_training"] = "start_training"
     employee_name: str = ""
-    product_id: str = "kk_novichok"
+    product_id: str = DEFAULT_CASE_ID
+
+    @field_validator("product_id")
+    @classmethod
+    def _check_product(cls, v: str) -> str:
+        return _validate_product_id(v)
 
 
 class SelectModeCmd(BaseModel):
@@ -142,5 +155,10 @@ class CreateSessionResponse(SessionOut):
 
 class CreateSessionRequest(BaseModel):
     employee_name: str = ""
-    product_id: str = "kk_novichok"
+    product_id: str = DEFAULT_CASE_ID
     initial_mode: Literal["training", "example", "practice"] | None = None
+
+    @field_validator("product_id")
+    @classmethod
+    def _check_product(cls, v: str) -> str:
+        return _validate_product_id(v)

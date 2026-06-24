@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 
 from application.ports.quiz_director import QuizDirector, QuizTurn
 from domain.context import SessionContext
+from infrastructure.content.case_loader import load_case, resolve_case_id
 from infrastructure.content.cc_novichok import TRAINING_BLOCKS
 from infrastructure.llm.prompt_store import PromptStore
 
@@ -78,8 +79,15 @@ _KICKOFF_TEMPLATE = """\
 Без markdown-обёртки."""
 
 
-def _build_factology() -> str:
-    """Сжатая фактология для контекста LLM-квиза."""
+def _build_factology(case_id: str | None = None) -> str:
+    """Фактология кейса для контекста LLM-квиза.
+
+    Берём facts.md кейса; если пусто (нет файлов) — fallback на TRAINING_BLOCKS.
+    """
+    cid = resolve_case_id(case_id)
+    facts = load_case(cid).facts.strip()
+    if facts:
+        return facts
     lines: list[str] = []
     for i, block in enumerate(TRAINING_BLOCKS, start=1):
         lines.append(f"{i}. {block.text}")
@@ -104,12 +112,12 @@ class GigaChatQuizDirector(QuizDirector):
         ctx: SessionContext,
         user_text: str | None,
     ) -> QuizTurn:
-        system_prompt = self._prompts.get_quiz_prompt().strip()
+        system_prompt = self._prompts.get_quiz_prompt(ctx.product_id).strip()
         if not system_prompt:
             logger.info("quiz_prompt пуст — fallback на StubQuizDirector")
             return await self._fallback.next_turn(ctx, user_text)
 
-        factology = _build_factology()
+        factology = _build_factology(ctx.product_id)
         correct_count = self._count_correct(ctx)
 
         if user_text is None or not user_text.strip():

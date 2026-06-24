@@ -14,9 +14,14 @@ class PracticeEvaluator(Protocol):
 
     Возвращает кортеж западающих зон (пустой кортеж = всё ок).
     Порядок зон в ответе — канонический ZONE_ORDER, дубликаты исключены.
+
+    case_id — идентификатор учебного кейса (для выбора чек-листа);
+    None ⇒ дефолтный кейс.
     """
 
     async def evaluate(
         self,
         history: tuple[ChatMessage, ...],
+        *,
+        case_id: str | None = None,
     ) -> tuple[Zone, ...]: ...

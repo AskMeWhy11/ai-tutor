@@ -199,7 +199,9 @@ class SessionRunner:
         """PRACTICE_EVAL → PracticeEvaluator → авто-цепочка до KNOWLEDGE/FINISH."""
         assert self._practice_evaluator is not None
         try:
-            weak = await self._practice_evaluator.evaluate(ctx.dialog_history)
+            weak = await self._practice_evaluator.evaluate(
+                ctx.dialog_history, case_id=ctx.product_id or None
+            )
         except Exception:
             logger.exception("practice_evaluator failed")
             return FSMState.PRACTICE_EVAL, ctx, ()
@@ -392,7 +394,9 @@ class SessionRunner:
         if self._practice_evaluator is None:
             return ZONE_ORDER  # без оценщика считаем все зоны западающими
         try:
-            return await self._practice_evaluator.evaluate(ctx.dialog_history)
+            return await self._practice_evaluator.evaluate(
+                ctx.dialog_history, case_id=ctx.product_id or None
+            )
         except Exception:
             logger.exception("practice_evaluator failed")
             return ZONE_ORDER

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from domain.types import ZONE_ORDER, Zone
+from infrastructure.content.registry import DEFAULT_CASE_ID, is_known_case
 
 __all__ = [
     "CaseContent",
@@ -25,9 +26,22 @@ __all__ = [
     "invalidate_case_cache",
     "load_case",
     "read_checklist_raw",
+    "resolve_case_id",
     "restore_default",
     "write_checklist_raw",
 ]
+
+
+def resolve_case_id(product_id: str | None) -> str:
+    """Нормализовать product_id из контекста в валидный case_id.
+
+    Пустой/неизвестный product_id → DEFAULT_CASE_ID.
+    """
+    pid = (product_id or "").strip()
+    if pid and is_known_case(pid):
+        return pid
+    return DEFAULT_CASE_ID
+
 
 logger = logging.getLogger(__name__)
 

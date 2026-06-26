@@ -10,14 +10,15 @@ from typing import Final
 
 from domain.states import Mode
 from infrastructure.content.case_loader import load_case
+from infrastructure.content.registry import DEFAULT_CASE_ID
 
 
-def _facts() -> str:
-    return load_case("cc_novichok").facts or "(фактология не загружена)"
+def _facts(case_id: str) -> str:
+    return load_case(case_id).facts or "(фактология не загружена)"
 
 
-def _dialogues() -> str:
-    return load_case("cc_novichok").dialogues or "(образцовые диалоги не загружены)"
+def _dialogues(case_id: str) -> str:
+    return load_case(case_id).dialogues or "(образцовые диалоги не загружены)"
 
 
 # ----------------------------------------------------------------------
@@ -238,23 +239,23 @@ _STAGE_DIRECTOR_TEMPLATE: Final[str] = """\
 # ----------------------------------------------------------------------
 
 
-def _render(template: str) -> str:
-    return template.format(FACTS=_facts(), DIALOGUES=_dialogues())
+def _render(template: str, case_id: str) -> str:
+    return template.format(FACTS=_facts(case_id), DIALOGUES=_dialogues(case_id))
 
 
-def default_mode_prompts() -> dict[Mode, str]:
+def default_mode_prompts(case_id: str = DEFAULT_CASE_ID) -> dict[Mode, str]:
     return {
-        Mode.TRAINING: _render(_TRAINING_TEMPLATE),
-        Mode.EXAMPLE: _render(_EXAMPLE_TEMPLATE),
-        Mode.PRACTICE: _render(_PRACTICE_TEMPLATE),
-        Mode.KNOWLEDGE: _render(_KNOWLEDGE_TEMPLATE),
+        Mode.TRAINING: _render(_TRAINING_TEMPLATE, case_id),
+        Mode.EXAMPLE: _render(_EXAMPLE_TEMPLATE, case_id),
+        Mode.PRACTICE: _render(_PRACTICE_TEMPLATE, case_id),
+        Mode.KNOWLEDGE: _render(_KNOWLEDGE_TEMPLATE, case_id),
     }
 
 
-def default_quiz_prompt() -> str:
+def default_quiz_prompt(case_id: str = DEFAULT_CASE_ID) -> str:
     # В QUIZ-промпте используются {{...}} для литералов JSON, чтобы str.format
     # не трогал фигурные скобки. Здесь подставляем только {FACTS}.
-    return _QUIZ_TEMPLATE.format(FACTS=_facts())
+    return _QUIZ_TEMPLATE.format(FACTS=_facts(case_id))
 
 
 def default_stage_director_prompt() -> str:

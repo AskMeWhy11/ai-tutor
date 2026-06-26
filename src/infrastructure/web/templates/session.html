@@ -14,11 +14,11 @@
     <div class="page page--session">
         {# Презентация на весь экран — фон #}
         <div class="pdf-bg" aria-hidden="true">
-            <object data="/static/cc_preza.pdf#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf"
+            <object data="/static/{{ preza }}#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf"
                 class="pdf-bg-embed" aria-label="PDF-презентация">
                 <div class="pdf-bg-fallback">
                     <p>Презентация не загружена.</p>
-                    <p class="muted">Положите <code>cc_preza.pdf</code> в <code>/static/</code>.</p>
+                    <p class="muted">Положите <code>{{ preza }}</code> в <code>/static/</code>.</p>
                 </div>
             </object>
         </div>

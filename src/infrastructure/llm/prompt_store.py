@@ -123,8 +123,8 @@ class PromptStore:
         bundle = self._cases.get(cid)
         if bundle is None:
             bundle = _CaseBundle(
-                mode_prompts=default_mode_prompts(),
-                quiz_prompt=default_quiz_prompt(),
+                mode_prompts=default_mode_prompts(cid),
+                quiz_prompt=default_quiz_prompt(cid),
             )
             self._cases[cid] = bundle
         return bundle
@@ -224,8 +224,8 @@ class PromptStore:
         self._stage_director_prompt = default_stage_director_prompt()
         self._cases = {
             cid: _CaseBundle(
-                mode_prompts=default_mode_prompts(),
-                quiz_prompt=default_quiz_prompt(),
+                mode_prompts=default_mode_prompts(cid),
+                quiz_prompt=default_quiz_prompt(cid),
             )
             for cid in editable_case_ids()
         }
@@ -283,23 +283,23 @@ class PromptStore:
         out: dict[str, _CaseBundle] = {}
         for cid in editable_case_ids():
             entry = cases_raw.get(cid)
-            out[cid] = self._parse_bundle(entry if isinstance(entry, dict) else None)
+            out[cid] = self._parse_bundle(cid, entry if isinstance(entry, dict) else None)
         # Кейсы из файла, которых нет в реестре, — сохраняем как есть.
         for cid, entry in cases_raw.items():
             if cid not in out and isinstance(entry, dict):
-                out[cid] = self._parse_bundle(entry)
+                out[cid] = self._parse_bundle(cid, entry)
         return out
 
     def _migrate_legacy_unlocked(self, raw: dict[str, Any]) -> dict[str, _CaseBundle]:
         legacy_modes_raw = raw.get("mode_prompts", {}) or {}
         legacy_modes = self._parse_modes(
-            legacy_modes_raw if isinstance(legacy_modes_raw, dict) else {}
+            DEFAULT_CASE_ID, legacy_modes_raw if isinstance(legacy_modes_raw, dict) else {}
         )
         legacy_quiz_raw = raw.get("quiz_prompt")
         legacy_quiz = (
             legacy_quiz_raw
             if isinstance(legacy_quiz_raw, str) and legacy_quiz_raw.strip()
-            else default_quiz_prompt()
+            else default_quiz_prompt(DEFAULT_CASE_ID)
         )
         out: dict[str, _CaseBundle] = {}
         for cid in editable_case_ids():
@@ -307,26 +307,30 @@ class PromptStore:
                 out[cid] = _CaseBundle(mode_prompts=legacy_modes, quiz_prompt=legacy_quiz)
             else:
                 out[cid] = _CaseBundle(
-                    mode_prompts=default_mode_prompts(),
-                    quiz_prompt=default_quiz_prompt(),
+                    quiz_prompt=default_quiz_prompt(cid),
+                    mode_prompts=default_mode_prompts(cid),
                 )
         return out
 
-    def _parse_bundle(self, entry: dict[str, Any] | None) -> _CaseBundle:
+    def _parse_bundle(self, case_id: str, entry: dict[str, Any] | None) -> _CaseBundle:
         if entry is None:
             return _CaseBundle(
-                mode_prompts=default_mode_prompts(),
-                quiz_prompt=default_quiz_prompt(),
+                mode_prompts=default_mode_prompts(case_id),
+                quiz_prompt=default_quiz_prompt(case_id),
             )
         modes_raw = entry.get("mode_prompts", {}) or {}
-        modes = self._parse_modes(modes_raw if isinstance(modes_raw, dict) else {})
+        modes = self._parse_modes(case_id, modes_raw if isinstance(modes_raw, dict) else {})
         quiz_raw = entry.get("quiz_prompt")
-        quiz = quiz_raw if isinstance(quiz_raw, str) and quiz_raw.strip() else default_quiz_prompt()
+        quiz = (
+            quiz_raw
+            if isinstance(quiz_raw, str) and quiz_raw.strip()
+            else default_quiz_prompt(case_id)
+        )
         return _CaseBundle(mode_prompts=modes, quiz_prompt=quiz)
 
     @staticmethod
-    def _parse_modes(loaded_modes: dict[str, Any]) -> dict[Mode, str]:
-        merged = default_mode_prompts()
+    def _parse_modes(case_id: str, loaded_modes: dict[str, Any]) -> dict[Mode, str]:
+        merged = default_mode_prompts(case_id)
         for key, value in loaded_modes.items():
             try:
                 mode = Mode(key)

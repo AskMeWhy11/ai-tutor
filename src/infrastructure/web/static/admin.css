@@ -232,9 +232,13 @@
 
 .admin-row-actions {
     display: flex;
-    gap: 8px;
+    flex-wrap: nowrap;
     align-items: center;
-    flex-wrap: wrap;
+    gap: 10px;
+}
+.admin-row-actions .btn {
+    white-space: nowrap;
+    flex: 0 0 auto;
 }
 .admin-inline-form {
     display: inline;

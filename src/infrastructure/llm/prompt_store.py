@@ -187,6 +187,26 @@ class PromptStore:
                     bundle.quiz_prompt = quiz_prompt
             self._flush_unlocked()
 
+    def restore_mode_prompt(self, mode: Mode, case_id: str | None = None) -> str:
+        """Сбросить промпт режима к дефолту (фактология из cases/<id>/)."""
+        self._ensure_loaded()
+        with self._lock:
+            cid = self._resolve_case(case_id)
+            text = default_mode_prompts(cid)[mode]
+            self._bundle(cid).mode_prompts[mode] = text
+            self._flush_unlocked()
+            return text
+
+    def restore_quiz_prompt(self, case_id: str | None = None) -> str:
+        """Сбросить квиз-промпт к дефолту."""
+        self._ensure_loaded()
+        with self._lock:
+            cid = self._resolve_case(case_id)
+            text = default_quiz_prompt(cid)
+            self._bundle(cid).quiz_prompt = text
+            self._flush_unlocked()
+            return text
+
     def snapshot(self, case_id: str | None = None) -> PromptSnapshot:
         self._ensure_loaded()
         with self._lock:

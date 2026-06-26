@@ -376,4 +376,32 @@ def build_admin_router() -> APIRouter:
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
+    # ---------- Промпты режимов / квиз: restore ----------
+
+    @router.post("/prompts/{case_id}/mode/{mode_key}/restore")
+    def restore_mode_prompt(case_id: str, mode_key: str, request: Request) -> RedirectResponse:
+        cid = _resolve_case_id(case_id)
+        try:
+            mode = Mode(mode_key)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Unknown mode"
+            ) from exc
+        _store(request).restore_mode_prompt(mode, cid)
+        logger.info("Mode prompt restored: %s/%s", cid, mode_key)
+        return RedirectResponse(
+            url=f"/admin/prompts?case_id={cid}&case_saved=mode-{mode_key}-restored",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @router.post("/prompts/{case_id}/quiz/restore")
+    def restore_quiz_prompt(case_id: str, request: Request) -> RedirectResponse:
+        cid = _resolve_case_id(case_id)
+        _store(request).restore_quiz_prompt(cid)
+        logger.info("Quiz prompt restored: %s", cid)
+        return RedirectResponse(
+            url=f"/admin/prompts?case_id={cid}&case_saved=quiz-restored",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
     return router

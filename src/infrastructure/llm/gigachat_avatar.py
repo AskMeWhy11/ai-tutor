@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, Any
 
 from domain.context import SessionContext
 from domain.states import FSMState, Mode
-from infrastructure.content.case_loader import load_case, resolve_case_id
 from infrastructure.llm.prompt_store import PromptStore
 from infrastructure.llm.stub_avatar import StubAvatar
 
@@ -161,17 +160,11 @@ class GigaChatAvatar:
         if ctx.weak_zones_remaining:
             ctx_block += f"- западающие зоны: {', '.join(ctx.weak_zones_remaining)}\n"
 
-        case = load_case(resolve_case_id(ctx.product_id))
-        content_block = ""
-        if case.facts:
-            content_block += f"\n\nФАКТОЛОГИЯ КЕЙСА:\n{case.facts}"
-        if case.dialogues:
-            content_block += f"\n\nОБРАЗЦОВЫЕ ДИАЛОГИ КЕЙСА:\n{case.dialogues}"
-
-        parts = [mode_prompt, ctx_block, content_block]
+        # mode_prompt уже содержит фактологию/диалоги (render_prompt в PromptStore),
+        # поэтому отдельный content_block больше не нужен — избегаем дублирования.
+        parts = [mode_prompt, ctx_block]
         if global_prompt:
             parts.insert(0, f"{global_prompt}\n\n")
-            return "".join(parts)
         return "".join(parts)
 
     # ------------------------------------------------------------------

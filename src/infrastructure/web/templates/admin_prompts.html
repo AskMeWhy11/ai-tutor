@@ -193,50 +193,58 @@
             </details>
 
             {# ===== Restore-формы (вне основной формы: вложенность <form> запрещена) ===== #}
-            {% for mode in modes %}
-            <form method="post" id="restore-mode-{{ mode.key }}"
-                action="/admin/prompts/{{ case_id }}/mode/{{ mode.key }}/restore"
-                onsubmit="return confirm('Восстановить промпт «{{ mode.key }}» по умолчанию? Текущий текст будет перезаписан.');">
-            </form>
-            {% endfor %}
-            <form method="post" id="restore-quiz"
-                action="/admin/prompts/{{ case_id }}/quiz/restore"
-                onsubmit="return confirm('Восстановить квиз-промпт по умолчанию? Текущий текст будет перезаписан.');">
-            </form>
-
-            {# ===== Промпты режимов / квиз ===== #}
-            <form method="post" action="/admin/prompts" class="admin-form">
-                <input type="hidden" name="case_id" value="{{ case_id }}">
-                <h3 class="admin-h3">Режимы диалога (LLM-аватар)</h3>
                 {% for mode in modes %}
-                <div class="admin-card">
-                    <div class="admin-row">
-                        <label class="admin-label" for="mode__{{ mode.key }}">{{ mode.label }}</label>
-                        <div class="admin-row-actions">
-                            <button type="submit" form="restore-mode-{{ mode.key }}" class="btn btn-warn">
-                                Восстановить по умолчанию</button>
-                        </div>
-                    </div>
-                    <textarea id="mode__{{ mode.key }}" name="mode__{{ mode.key }}" rows="14">{{ mode.text }}</textarea>
-                </div>
+                <form method="post" id="restore-mode-{{ mode.key }}"
+                    action="/admin/prompts/{{ case_id }}/mode/{{ mode.key }}/restore"
+                    onsubmit="return confirm('Восстановить промпт «{{ mode.key }}» по умолчанию? Текущий текст будет перезаписан.');">
+                </form>
                 {% endfor %}
+                <form method="post" id="restore-quiz" action="/admin/prompts/{{ case_id }}/quiz/restore"
+                    onsubmit="return confirm('Восстановить квиз-промпт по умолчанию? Текущий текст будет перезаписан.');">
+                </form>
 
-                <h3 class="admin-h3">Проверочный квиз (TRAINING_QUIZ)</h3>
-                <p class="admin-hint">
-                    Управляет генерацией вопросов и оценкой ответов после теории.
-                    Должен возвращать строгий JSON:
-                    <code>{verdict, explanation, next_question, done}</code>.
-                </p>
-                <div class="admin-card">
-                    <div class="admin-row">
-                        <label class="admin-label" for="quiz_prompt">QUIZ — генерация и проверка вопросов</label>
-                        <div class="admin-row-actions">
-                            <button type="submit" form="restore-quiz" class="btn btn-warn">
-                                Восстановить по умолчанию</button>
+                {# ===== Промпты режимов / квиз ===== #}
+                <form method="post" action="/admin/prompts" class="admin-form">
+                    <input type="hidden" name="case_id" value="{{ case_id }}">
+                    <h3 class="admin-h3">Режимы диалога (LLM-аватар)</h3>
+                    <p class="admin-hint">
+                        Доступные плейсхолдеры (подставляются автоматически при использовании):
+                        <code>{PRODUCT}</code> — название продукта/техники,
+                        <code>{FACTS}</code> — фактология кейса,
+                        <code>{DIALOGUES}</code> — образцовые диалоги.
+                        Остальные фигурные скобки (в т.ч. JSON) не трогаются.
+                    </p>
+                    {% for mode in modes %}
+                    <div class="admin-card">
+                        <div class="admin-row">
+                            <label class="admin-label" for="mode__{{ mode.key }}">{{ mode.label }}</label>
+                            <div class="admin-row-actions">
+                                <button type="submit" form="restore-mode-{{ mode.key }}" class="btn btn-warn">
+                                    Восстановить по умолчанию</button>
+                            </div>
                         </div>
+                        <textarea id="mode__{{ mode.key }}" name="mode__{{ mode.key }}"
+                            rows="14">{{ mode.text }}</textarea>
                     </div>
-                    <textarea id="quiz_prompt" name="quiz_prompt" rows="20">{{ quiz_prompt }}</textarea>
-                </div>
+                    {% endfor %}
+
+                    <h3 class="admin-h3">Проверочный квиз (TRAINING_QUIZ)</h3>
+                    <p class="admin-hint">
+                        Управляет генерацией вопросов и оценкой ответов после теории.
+                        Должен возвращать строгий JSON:
+                        <code>{verdict, explanation, next_question, done}</code>.
+                        Плейсхолдеры: <code>{PRODUCT}</code>, <code>{FACTS}</code>.
+                    </p>
+                    <div class="admin-card">
+                        <div class="admin-row">
+                            <label class="admin-label" for="quiz_prompt">QUIZ — генерация и проверка вопросов</label>
+                            <div class="admin-row-actions">
+                                <button type="submit" form="restore-quiz" class="btn btn-warn">
+                                    Восстановить по умолчанию</button>
+                            </div>
+                        </div>
+                        <textarea id="quiz_prompt" name="quiz_prompt" rows="20">{{ quiz_prompt }}</textarea>
+                    </div>
         </section>
 
         {# ============================================================ #}

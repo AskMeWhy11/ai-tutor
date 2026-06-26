@@ -53,9 +53,6 @@ _USER_TEMPLATE = """\
 {user_text}
 ---
 
-ФАКТОЛОГИЯ ПРОДУКТА:
-{factology}
-
 Верни СТРОГО JSON в формате:
 {{"verdict": "correct"|"incorrect"|"none",
   "explanation": "<разъяснение, если verdict=incorrect; иначе пусто>",
@@ -71,8 +68,6 @@ _KICKOFF_TEMPLATE = """\
 Это начало квиза — сотрудник только что закончил теорию.
 Сформулируй ПЕРВЫЙ проверочный вопрос по фактологии.
 
-ФАКТОЛОГИЯ ПРОДУКТА:
-{factology}
 
 Верни СТРОГО JSON:
 {{"verdict": "none", "explanation": "", "next_question": "<вопрос>", "done": false}}
@@ -117,14 +112,12 @@ class GigaChatQuizDirector(QuizDirector):
             logger.info("quiz_prompt пуст — fallback на StubQuizDirector")
             return await self._fallback.next_turn(ctx, user_text)
 
-        factology = _build_factology(ctx.product_id)
         correct_count = self._count_correct(ctx)
 
         if user_text is None or not user_text.strip():
             user_msg = _KICKOFF_TEMPLATE.format(
                 employee=ctx.employee_name or "сотрудник",
                 cycle=ctx.cycle_count,
-                factology=factology,
             )
         else:
             user_msg = _USER_TEMPLATE.format(
@@ -133,7 +126,6 @@ class GigaChatQuizDirector(QuizDirector):
                 asked=ctx.quiz_question_index + 1,
                 correct_count=correct_count,
                 user_text=user_text.strip(),
-                factology=factology,
             )
 
         try:

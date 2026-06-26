@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -63,20 +63,15 @@ async def test_gigachat_avatar_system_prompt_includes_case_facts(
     from infrastructure.llm.prompt_store import PromptStore
     from infrastructure.llm.stub_avatar import StubAvatar
 
-    class _FakeCase:
-        case_id = DEFAULT_CASE_ID
-        facts = "ТЕСТ-ФАКТ-XYZ"
-        dialogues = "ТЕСТ-ДИАЛОГ-ABC"
-        checklist: ClassVar[dict[Zone, tuple[object, ...]]] = {}
-
-    monkeypatch.setattr(mod, "load_case", lambda cid: _FakeCase())
-
     store = PromptStore(Path(cast("Path", tmp_path)) / "prompts.json")
     monkeypatch.setattr(
         store,
         "snapshot",
         lambda: type("S", (), {"system_prompt": "GLOBAL"})(),
     )
+    # Фактология/диалоги попадают в промпт через рендер в PromptStore
+    # (gigachat_avatar больше не читает кейс напрямую).
+    mode_prompt = "MODE-PROMPT\nФАКТЫ: ТЕСТ-ФАКТ-XYZ\nДИАЛОГИ: ТЕСТ-ДИАЛОГ-ABC"
 
     avatar = mod.GigaChatAvatar(
         client=cast("GigaChat", object()),
@@ -84,7 +79,7 @@ async def test_gigachat_avatar_system_prompt_includes_case_facts(
         fallback=StubAvatar(store),
     )
     ctx = SessionContext(product_id="cc_novichok")
-    prompt = avatar._compose_system_prompt("MODE-PROMPT", ctx)
+    prompt = avatar._compose_system_prompt(mode_prompt, ctx)
 
     assert "ТЕСТ-ФАКТ-XYZ" in prompt
     assert "ТЕСТ-ДИАЛОГ-ABC" in prompt

@@ -18,6 +18,7 @@ from typing import Any, Final
 
 from domain.states import FSMState, Mode
 from infrastructure.content.registry import DEFAULT_CASE_ID, editable_case_ids
+from infrastructure.llm.content_render import render_prompt
 from infrastructure.llm.default_prompts import (
     default_mode_prompts,
     default_quiz_prompt,
@@ -48,8 +49,9 @@ DYNAMIC_STATES: Final[frozenset[FSMState]] = frozenset(
 
 EDITABLE_STATES: Final[tuple[FSMState, ...]] = tuple(s for s in FSMState if s not in DYNAMIC_STATES)
 
-# v5: mode_prompts и quiz_prompt стали per-case (cases[case_id]{...}).
-_SCHEMA_VERSION: Final[int] = 5
+# v6: mode_prompts/quiz_prompt хранятся как шаблоны с плейсхолдерами
+#     {FACTS}/{DIALOGUES}; контент подставляется при чтении (render_prompt).
+_SCHEMA_VERSION: Final[int] = 6
 
 
 def default_templates() -> dict[FSMState, str]:
@@ -154,12 +156,14 @@ class PromptStore:
     def get_mode_prompt(self, mode: Mode, case_id: str | None = None) -> str:
         self._ensure_loaded()
         with self._lock:
-            return self._bundle(case_id).mode_prompts.get(mode, "")
+            template = self._bundle(case_id).mode_prompts.get(mode, "")
+        return render_prompt(template, case_id)
 
     def get_quiz_prompt(self, case_id: str | None = None) -> str:
         self._ensure_loaded()
         with self._lock:
-            return self._bundle(case_id).quiz_prompt
+            template = self._bundle(case_id).quiz_prompt
+        return render_prompt(template, case_id)
 
     def replace_all(
         self,
@@ -265,6 +269,9 @@ class PromptStore:
                 version,
                 _SCHEMA_VERSION,
             )
+        # v<6: mode/quiz хранили отрендеренный контент. Сбрасываем их к
+        # шаблонам с плейсхолдерами — контент теперь подставляется динамически.
+        drop_case_prompts = version < 6
 
         self._system_prompt = str(raw.get("system_prompt", ""))
 
@@ -293,7 +300,16 @@ class PromptStore:
 
         # --- per-case bundles ---
         cases_raw = raw.get("cases")
-        if isinstance(cases_raw, dict) and cases_raw:
+        if drop_case_prompts:
+            self._cases = {
+                cid: _CaseBundle(
+                    mode_prompts=default_mode_prompts(cid),
+                    quiz_prompt=default_quiz_prompt(cid),
+                )
+                for cid in editable_case_ids()
+            }
+            self._flush_unlocked()
+        elif isinstance(cases_raw, dict) and cases_raw:
             self._cases = self._load_cases_unlocked(cases_raw)
         else:
             # Миграция v4→v5: глобальные mode_prompts/quiz_prompt → DEFAULT_CASE_ID.

@@ -9,6 +9,7 @@ __all__ = [
     "DEFAULT_CASE_ID",
     "CaseInfo",
     "available_case_ids",
+    "case_label",
     "editable_case_ids",
     "is_known_case",
     "preza_file_for",
@@ -51,6 +52,14 @@ def editable_case_ids() -> tuple[str, ...]:
 
 def is_known_case(case_id: str) -> bool:
     return any(c.case_id == case_id for c in CASE_REGISTRY)
+
+
+def case_label(case_id: str) -> str:
+    """Человекочитаемое название кейса/продукта. Неизвестный id → сам id."""
+    for c in CASE_REGISTRY:
+        if c.case_id == case_id:
+            return c.label
+    return case_id
 
 
 def preza_file_for(case_id: str) -> str:

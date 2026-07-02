@@ -16,7 +16,6 @@ const state = {
     availableCommands: [],
     knowledgeUnlocked: false,
     debug: false,
-    recognition: null,
     recording: false,
 };
 
@@ -475,63 +474,179 @@ function makeBtn(label, onClick) {
     return b;
 }
 
-// ---------- Микрофон (Web Speech API) ----------
+// ---------- Микрофон (запись PCM 16k → /api/stt) ----------
 
-function setupSpeechRecognition() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-        els.btnMic.disabled = true;
-        els.btnMic.title = "Голосовой ввод не поддерживается этим браузером";
-        return;
+const sttRec = {
+    stream: null,
+    audioCtx: null,
+    source: null,
+    processor: null,
+    chunks: [],       // Float32Array блоки
+    sampleRate: 16000,
+    busy: false,
+};
+
+function floatTo16BitPCM(input) {
+    const out = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
     }
-    const rec = new SR();
-    rec.lang = "ru-RU";
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
-    rec.continuous = false;
+    return out;
+}
 
-    rec.addEventListener("result", (e) => {
-        const text = Array.from(e.results)
-            .map((r) => r[0].transcript)
-            .join(" ")
-            .trim();
+function encodeWav(samples, sampleRate) {
+    const pcm = floatTo16BitPCM(samples);
+    const buffer = new ArrayBuffer(44 + pcm.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = (off, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+    };
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + pcm.length * 2, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);       // PCM
+    view.setUint16(22, 1, true);       // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);       // block align
+    view.setUint16(34, 16, true);      // bits
+    writeStr(36, "data");
+    view.setUint32(40, pcm.length * 2, true);
+    let off = 44;
+    for (let i = 0; i < pcm.length; i++, off += 2) view.setInt16(off, pcm[i], true);
+    return new Blob([view], { type: "audio/wav" });
+}
+
+// Down-mix + resample к 16k (линейная интерполяция).
+function resampleTo16k(float32, fromRate) {
+    const target = 16000;
+    if (fromRate === target) return float32;
+    const ratio = fromRate / target;
+    const newLen = Math.round(float32.length / ratio);
+    const out = new Float32Array(newLen);
+    for (let i = 0; i < newLen; i++) {
+        const pos = i * ratio;
+        const idx = Math.floor(pos);
+        const frac = pos - idx;
+        const a = float32[idx] || 0;
+        const b = float32[idx + 1] || a;
+        out[i] = a + (b - a) * frac;
+    }
+    return out;
+}
+
+function concatFloat32(chunks) {
+    let len = 0;
+    for (const c of chunks) len += c.length;
+    const out = new Float32Array(len);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out;
+}
+
+async function startRecording() {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const audioCtx = new AudioCtx();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+    sttRec.stream = stream;
+    sttRec.audioCtx = audioCtx;
+    sttRec.source = source;
+    sttRec.processor = processor;
+    sttRec.chunks = [];
+    sttRec.sampleRate = audioCtx.sampleRate;
+
+    processor.onaudioprocess = (e) => {
+        const ch = e.inputBuffer.getChannelData(0);
+        sttRec.chunks.push(new Float32Array(ch));
+    };
+    source.connect(processor);
+    processor.connect(audioCtx.destination);
+}
+
+async function stopRecordingAndSend() {
+    const { processor, source, audioCtx, stream, chunks, sampleRate } = sttRec;
+    try {
+        processor && processor.disconnect();
+        source && source.disconnect();
+    } catch (_) { /* ignore */ }
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    if (audioCtx && audioCtx.state !== "closed") { try { await audioCtx.close(); } catch (_) {} }
+
+    sttRec.processor = sttRec.source = sttRec.audioCtx = sttRec.stream = null;
+
+    const merged = concatFloat32(chunks);
+    sttRec.chunks = [];
+    if (!merged.length) return;
+
+    const pcm16k = resampleTo16k(merged, sampleRate);
+    const wav = encodeWav(pcm16k, 16000);
+
+    const fd = new FormData();
+    fd.append("audio", wav, "speech.wav");
+
+    els.btnMic.classList.add("is-busy");
+    try {
+        const res = await fetch("/api/stt", { method: "POST", body: fd });
+        if (!res.ok) {
+            const body = await res.text();
+            throw new Error(`STT ${res.status}: ${body}`);
+        }
+        const data = await res.json();
+        const text = (data.text || "").trim();
         if (text) {
             els.composerInput.value = text;
-        }
-    });
-    rec.addEventListener("end", () => {
-        state.recording = false;
-        els.btnMic.setAttribute("aria-pressed", "false");
-        els.btnMic.classList.remove("is-recording");
-        const val = els.composerInput.value.trim();
-        if (val) {
-            sendUserMessage(val);
+            sendUserMessage(text);
             els.composerInput.value = "";
-        }
-    });
-    rec.addEventListener("error", (e) => {
-        console.warn("speech error:", e.error);
-        state.recording = false;
-        els.btnMic.setAttribute("aria-pressed", "false");
-        els.btnMic.classList.remove("is-recording");
-    });
-
-    state.recognition = rec;
-
-    els.btnMic.addEventListener("click", () => {
-        if (!state.recognition) return;
-        if (state.recording) {
-            state.recognition.stop();
         } else {
+            appendBubble("hint", "🎤 Речь не распознана, попробуйте ещё раз.");
+        }
+    } catch (err) {
+        console.error(err);
+        appendBubble("hint", `⚠️ Ошибка распознавания: ${err.message}`);
+    } finally {
+        els.btnMic.classList.remove("is-busy");
+    }
+}
+
+function setupSpeechRecognition() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        els.btnMic.disabled = true;
+        els.btnMic.title = "Микрофон не поддерживается этим браузером";
+        return;
+    }
+
+    els.btnMic.addEventListener("click", async () => {
+        if (sttRec.busy) return;
+
+        if (state.recording) {
+            // остановка
+            state.recording = false;
+            els.btnMic.setAttribute("aria-pressed", "false");
+            els.btnMic.classList.remove("is-recording");
+            sttRec.busy = true;
             try {
-                els.composerInput.value = "";
-                state.recognition.start();
-                state.recording = true;
-                els.btnMic.setAttribute("aria-pressed", "true");
-                els.btnMic.classList.add("is-recording");
-            } catch (err) {
-                console.warn("recognition start failed:", err);
+                await stopRecordingAndSend();
+            } finally {
+                sttRec.busy = false;
             }
+            return;
+        }
+
+        // старт
+        try {
+            await startRecording();
+            state.recording = true;
+            els.btnMic.setAttribute("aria-pressed", "true");
+            els.btnMic.classList.add("is-recording");
+        } catch (err) {
+            console.warn("mic start failed:", err);
+            appendBubble("hint", "⚠️ Не удалось получить доступ к микрофону.");
         }
     });
 }

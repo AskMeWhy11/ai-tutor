@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.requests import Request as _StReq
 
 from application.fsm_service import FSMService
 from application.ports.answer_checker import AnswerChecker
@@ -39,6 +40,7 @@ from infrastructure.tts.salute_speech import SaluteSpeechTTS
 from infrastructure.web.routes_admin import build_admin_router
 from infrastructure.web.routes_api import build_api_router
 from infrastructure.web.routes_ui import build_ui_router
+from infrastructure.web.security import LoginRedirect
 
 if TYPE_CHECKING:
     from gigachat import GigaChat
@@ -81,6 +83,10 @@ def create_app(
 
     app = FastAPI(title="AI-наставник", version="0.1.0", lifespan=lifespan)
 
+    @app.exception_handler(LoginRedirect)
+    async def _login_redirect_handler(_req: _StReq, exc: LoginRedirect) -> Any:
+        return exc.response
+
     fsm = FSMService()
     session_store = store or InMemorySessionStore()
     prompt_store = PromptStore(settings.prompts_file)
@@ -118,7 +124,8 @@ def create_app(
 
     app.include_router(build_ui_router())
     app.include_router(build_api_router(), prefix="/api")
-    app.include_router(build_admin_router())
+    for admin_router in build_admin_router():
+        app.include_router(admin_router)
 
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Вход в админку · AI-наставник</title>
+  <link rel="stylesheet" href="/static/admin.css" />
+  <style>
+    .login-wrap { max-width: 360px; margin: 10vh auto; padding: 24px; }
+    .login-wrap h1 { font-size: 1.2rem; margin-bottom: 16px; }
+    .login-wrap label { display: block; margin: 12px 0 4px; font-size: .9rem; }
+    .login-wrap input { width: 100%; padding: 8px; box-sizing: border-box; }
+    .login-wrap button { margin-top: 16px; width: 100%; padding: 10px; cursor: pointer; }
+    .login-error { color: #c0392b; margin-top: 12px; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <h1>Вход в админку</h1>
+    <form method="post" action="/admin/login">
+      <input type="hidden" name="next" value="{{ next }}" />
+      <label for="username">Логин</label>
+      <input id="username" name="username" autocomplete="username" autofocus required />
+      <label for="password">Пароль</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" required />
+      <button type="submit">Войти</button>
+      {% if error %}<div class="login-error">Неверный логин или пароль</div>{% endif %}
+    </form>
+  </div>
+</body>
+</html>

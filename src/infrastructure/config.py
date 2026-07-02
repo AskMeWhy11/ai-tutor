@@ -44,7 +44,10 @@ class Settings(BaseSettings):
 
     # Админка
     admin_username: str = "admin"
-    admin_password: str = "admin"
+    admin_password: str = "admin123!123"
+    admin_session_secret: str = ""  # пусто = подпись выводится из admin_password
+    admin_session_ttl_seconds: int = 12 * 3600
+    admin_cookie_secure: bool = True
 
     @property
     def tts_cache_path(self) -> Path:
@@ -53,6 +56,11 @@ class Settings(BaseSettings):
     @property
     def prompts_file(self) -> Path:
         return Path(self.prompts_path)
+
+    @property
+    def admin_signing_key(self) -> bytes:
+        key = self.admin_session_secret.strip() or self.admin_password
+        return key.encode("utf-8")
 
 
 @lru_cache(maxsize=1)

@@ -28,7 +28,12 @@ from infrastructure.llm.prompt_store import (
     EDITABLE_STATES,
     PromptStore,
 )
-from infrastructure.web.security import require_admin
+from infrastructure.web.security import (
+    ADMIN_COOKIE_NAME,
+    check_credentials,
+    issue_token,
+    require_admin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +204,67 @@ def _parse_checklist_form(
     return out
 
 
-def build_admin_router() -> APIRouter:
+def build_admin_router() -> list[APIRouter]:
+    # ---------- Публичные роуты аутентификации (без require_admin) ----------
+    public = APIRouter(prefix="/admin", tags=["admin"])
+
+    @public.get("/login", response_class=HTMLResponse)
+    def login_form(
+        request: Request,
+        next: str = "/admin/prompts",
+        error: int = 0,
+    ) -> Any:
+        settings = request.app.state.settings
+        if not settings.admin_password:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Admin panel is disabled (ADMIN_PASSWORD is not set)",
+            )
+        templates = request.app.state.templates
+        return templates.TemplateResponse(
+            request,
+            "admin_login.html",
+            {"next": next, "error": bool(error)},
+        )
+
+    @public.post("/login")
+    async def login_submit(request: Request) -> RedirectResponse:
+        from urllib.parse import quote
+
+        settings = request.app.state.settings
+        form = await request.form()
+        username = str(form.get("username", ""))
+        password = str(form.get("password", ""))
+        next_url = str(form.get("next", "/admin/prompts")) or "/admin/prompts"
+        if not next_url.startswith("/admin"):
+            next_url = "/admin/prompts"
+
+        if not check_credentials(settings, username, password):
+            return RedirectResponse(
+                url=f"/admin/login?next={quote(next_url, safe='')}&error=1",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+        token = issue_token(settings, username)
+        resp = RedirectResponse(url=next_url, status_code=status.HTTP_303_SEE_OTHER)
+        resp.set_cookie(
+            key=ADMIN_COOKIE_NAME,
+            value=token,
+            max_age=int(settings.admin_session_ttl_seconds),
+            httponly=True,
+            secure=bool(settings.admin_cookie_secure),
+            samesite="lax",
+            path="/admin",
+        )
+        return resp
+
+    @public.post("/logout")
+    def logout() -> RedirectResponse:
+        resp = RedirectResponse(url="/admin/login", status_code=status.HTTP_303_SEE_OTHER)
+        resp.delete_cookie(ADMIN_COOKIE_NAME, path="/admin")
+        return resp
+
+    # ---------- Защищённые роуты ----------
     router = APIRouter(
         prefix="/admin",
         tags=["admin"],
@@ -404,4 +469,4 @@ def build_admin_router() -> APIRouter:
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    return router
+    return [public, router]

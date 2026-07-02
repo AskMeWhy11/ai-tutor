@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse
+from starlette.datastructures import UploadFile
 
 # from starlette.datastructures import UploadFile  # ← базовый класс
 from application.commands import (
@@ -150,9 +151,10 @@ def build_api_router() -> APIRouter:
 
         audio_file = form.get("audio")
         if not isinstance(audio_file, UploadFile):
+            got = type(audio_file).__name__
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                detail="Ожидался multipart-файл в поле 'audio'",
+                detail=f"Ожидался multipart-файл в поле 'audio' (получено: {got})",
             )
 
         data = await audio_file.read()

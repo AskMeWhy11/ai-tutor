@@ -143,3 +143,16 @@ async def test_hint_delegated_to_fallback(prompt_store: PromptStore) -> None:
     expected = await stub.next_hint(FSMState.EXAMPLE, SessionContext())
     actual = await avatar.next_hint(FSMState.EXAMPLE, SessionContext())
     assert actual == expected
+
+
+@pytest.mark.asyncio
+async def test_hint_only_for_cc_novichok(prompt_store: PromptStore) -> None:
+    # Подсказка EXAMPLE (rationale) — контент cc_novichok, для техник продаж
+    # её быть не должно.
+    stub = StubAvatar(prompt_store)
+
+    cc_hint = await stub.next_hint(FSMState.EXAMPLE, SessionContext(product_id="cc_novichok"))
+    assert cc_hint
+
+    for pid in ("xpv", "spin", "pusk", "aida", "storytelling"):
+        assert await stub.next_hint(FSMState.EXAMPLE, SessionContext(product_id=pid)) is None

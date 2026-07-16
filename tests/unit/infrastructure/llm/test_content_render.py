@@ -58,7 +58,7 @@ def test_product_placeholder(monkeypatch):
 
     monkeypatch.setattr(mod, "load_case", lambda cid: _Case())
     monkeypatch.setattr(mod, "resolve_case_id", lambda cid: "spin")
-    monkeypatch.setattr(mod, "case_label", lambda cid: "SPIN-продажи")
+    monkeypatch.setattr(mod, "case_product_name", lambda cid: "SPIN-продажи")
 
     out = render_prompt("Тема: {PRODUCT}. {FACTS}", "spin")
     assert out == "Тема: SPIN-продажи. F"

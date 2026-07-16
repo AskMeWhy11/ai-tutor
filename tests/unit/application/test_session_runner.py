@@ -6,9 +6,10 @@ from uuid import uuid4
 
 import pytest
 
-from application.commands import SelectMode, StartSession, StartTraining
-from application.effects import EmitText, PersistSession, PlayAudio
+from application.commands import SelectMode, StartSession, StartTraining, UserMessage
+from application.effects import EmitHint, EmitText, PersistSession, PlayAudio
 from application.fsm_service import FSMService
+from application.ports.quiz_director import QuizTurn
 from application.session_runner import SessionRunner
 from domain.context import SessionContext
 from domain.states import FSMState
@@ -26,6 +27,23 @@ class _FakeAvatar:
 
     async def next_hint(self, state: FSMState, ctx: SessionContext) -> str | None:
         return None
+
+
+class _StateAwareAvatar:
+    """Аватар, чей текст зависит от состояния — удобно считать дубли."""
+
+    async def next_message(self, state: FSMState, ctx: SessionContext) -> str:
+        return f"MSG:{state.value}"
+
+    async def next_hint(self, state: FSMState, ctx: SessionContext) -> str | None:
+        return None
+
+
+class _FakeQuizDirector:
+    """Всегда засчитывает ответ и закрывает квиз (done=True)."""
+
+    async def next_turn(self, ctx: SessionContext, user_text: str | None) -> QuizTurn:
+        return QuizTurn(verdict="correct", explanation="", next_question="", done=True)
 
 
 class _FakeTTS:
@@ -137,3 +155,44 @@ async def test_dispatch_without_avatar_yields_no_emit_text() -> None:
     runner = SessionRunner(fsm=FSMService(), store=InMemorySessionStore(), avatar=None)
     result = await runner.dispatch(uuid4(), StartSession())
     assert all(not isinstance(e, EmitText) for e in result.effects)
+
+
+@pytest.mark.asyncio
+async def test_quiz_close_emits_training_done_reply_once() -> None:
+    # Регресс: при закрытии квиза реплика TRAINING_DONE уходила дважды
+    # (отдельный _build_avatar_effects + первый шаг _advance_chain).
+    store = InMemorySessionStore()
+    sid = uuid4()
+    await store.save(
+        sid,
+        FSMState.TRAINING_QUIZ,
+        SessionContext(product_id="xpv", quiz_question_index=0),
+    )
+    runner = SessionRunner(
+        fsm=FSMService(),
+        store=store,
+        avatar=_StateAwareAvatar(),
+        quiz_director=_FakeQuizDirector(),
+    )
+
+    result = await runner.dispatch(sid, UserMessage(text="мой ответ"))
+
+    done_msgs = [
+        e for e in result.effects if isinstance(e, EmitText) and e.text == "MSG:TRAINING_DONE"
+    ]
+    assert len(done_msgs) == 1, [e.text for e in result.effects if isinstance(e, EmitText)]
+
+
+@pytest.mark.asyncio
+async def test_example_hint_only_for_cc_novichok() -> None:
+    # Подсказка «📌 …» (rationale cc_novichok) не должна показываться для
+    # техник продаж.
+    cc_hint = SessionRunner._build_hint(
+        FSMState.EXAMPLE, SessionContext(product_id="cc_novichok")
+    )
+    assert isinstance(cc_hint, EmitHint)
+
+    for pid in ("xpv", "spin", "pusk", "aida", "storytelling"):
+        assert (
+            SessionRunner._build_hint(FSMState.EXAMPLE, SessionContext(product_id=pid)) is None
+        )

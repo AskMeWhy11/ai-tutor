@@ -11,9 +11,9 @@ import re
 from typing import Final
 
 from infrastructure.content.case_loader import load_case, resolve_case_id
-from infrastructure.content.registry import case_label
+from infrastructure.content.registry import case_product_name
 
-__all__ = ["PLACEHOLDERS", "render_prompt"]
+__all__ = ["PLACEHOLDERS", "render_prompt", "strip_markdown_emphasis"]
 
 PLACEHOLDERS: Final[tuple[str, ...]] = ("PRODUCT", "FACTS", "DIALOGUES")
 
@@ -26,7 +26,7 @@ _BOLD_PATTERN: Final[re.Pattern[str]] = re.compile(r"\*\*(.+?)\*\*")
 _ITALIC_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
 
 
-def _strip_markdown_emphasis(text: str) -> str:
+def strip_markdown_emphasis(text: str) -> str:
     text = _BOLD_PATTERN.sub(r"\1", text)
     text = _ITALIC_PATTERN.sub(r"\1", text)
     return text
@@ -43,9 +43,9 @@ def render_prompt(template: str, case_id: str | None = None) -> str:
     cid = resolve_case_id(case_id)
     case = load_case(cid)
     values = {
-        "PRODUCT": case_label(cid),
-        "FACTS": _strip_markdown_emphasis(case.facts) if case.facts else "(фактология не загружена)",
-        "DIALOGUES": _strip_markdown_emphasis(case.dialogues)
+        "PRODUCT": case_product_name(cid),
+        "FACTS": strip_markdown_emphasis(case.facts) if case.facts else "(фактология не загружена)",
+        "DIALOGUES": strip_markdown_emphasis(case.dialogues)
         if case.dialogues
         else "(образцовые диалоги не загружены)",
     }

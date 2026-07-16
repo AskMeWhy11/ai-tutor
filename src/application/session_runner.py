@@ -50,7 +50,9 @@ from application.ports.tts_client import TTSClient
 from domain.context import SessionContext
 from domain.states import FSMState
 from domain.types import ZONE_ORDER, ChatMessage
+from infrastructure.content.case_loader import resolve_case_id
 from infrastructure.content.cc_novichok import EXAMPLE_DIALOGUE
+from infrastructure.content.registry import DEFAULT_CASE_ID
 
 __all__ = ["AudioCachePort", "SessionRunner"]
 
@@ -423,6 +425,11 @@ class SessionRunner:
             logger.exception("quiz_director.next_turn failed")
             return FSMResult(FSMState.TRAINING_QUIZ, ctx, ())
 
+        # Ведём историю квиза: ответ сотрудника + последующие реплики
+        # аватара (разъяснение/следующий вопрос). Применяем к final_ctx
+        # в самом конце, чтобы модель на следующем ходу видела весь ход.
+        quiz_msgs: list[ChatMessage] = [ChatMessage(role="user", text=text)]
+
         effects: list[Effect] = [PersistSession()]
         final_state: FSMState = FSMState.TRAINING_QUIZ
         final_ctx: SessionContext = ctx
@@ -442,6 +449,7 @@ class SessionRunner:
 
             if final_state is FSMState.TRAINING_QUIZ and turn.next_question:
                 effects.extend(await self._reply_effects(turn.next_question))
+                quiz_msgs.append(ChatMessage(role="assistant", text=turn.next_question))
 
         elif turn.verdict == "incorrect":
             r1 = self._fsm.handle(FSMState.TRAINING_QUIZ, SubmitQuizAnswer(correct=False), ctx)
@@ -453,19 +461,26 @@ class SessionRunner:
 
             if turn.explanation:
                 effects.extend(await self._reply_effects(turn.explanation))
+                quiz_msgs.append(ChatMessage(role="assistant", text=turn.explanation))
             if turn.next_question:
                 effects.extend(await self._reply_effects(turn.next_question))
+                quiz_msgs.append(ChatMessage(role="assistant", text=turn.next_question))
         else:
             if turn.next_question:
                 effects.extend(await self._reply_effects(turn.next_question))
+                quiz_msgs.append(ChatMessage(role="assistant", text=turn.next_question))
+
+        # Дописываем ход квиза в историю (если квиз ещё идёт).
+        if final_state in (FSMState.TRAINING_QUIZ, FSMState.TRAINING_EXPLAIN):
+            merged = (*final_ctx.quiz_history, *quiz_msgs)
+            final_ctx = dataclasses.replace(final_ctx, quiz_history=merged)
+            await self._store.save(session_id, final_state, final_ctx)
 
         # Если квиз закрыт — авто-проходим TRAINING_DONE → EXAMPLE.
+        # _advance_chain сам эмитит реплику TRAINING_DONE первым шагом,
+        # поэтому отдельный _build_avatar_effects здесь НЕ нужен — иначе
+        # реплика «Отлично, теоретическую часть прошли…» уходит дважды.
         if final_state is FSMState.TRAINING_DONE:
-            avatar_effects, ctx_after = await self._build_avatar_effects(final_state, final_ctx)
-            if ctx_after is not final_ctx:
-                await self._store.save(session_id, final_state, ctx_after)
-                final_ctx = ctx_after
-            effects.extend(avatar_effects)
             final_state, final_ctx, chain = await self._advance_chain(
                 session_id, final_state, final_ctx
             )
@@ -508,6 +523,12 @@ class SessionRunner:
                 return (), ctx
             if not turn.next_question:
                 return (), ctx
+            # Первый вопрос кладём в историю квиза, чтобы модель на
+            # следующем ходу видела, на что отвечает сотрудник.
+            ctx = dataclasses.replace(
+                ctx,
+                quiz_history=(*ctx.quiz_history, ChatMessage(role="assistant", text=turn.next_question)),
+            )
             effects = await self._reply_effects(turn.next_question)
             return tuple(effects), ctx
 
@@ -550,6 +571,10 @@ class SessionRunner:
     @staticmethod
     def _build_hint(state: FSMState, ctx: SessionContext) -> EmitHint | None:
         if state is not FSMState.EXAMPLE:
+            return None
+        # EXAMPLE_DIALOGUE (и его rationale-подсказки) — контент cc_novichok.
+        # Для техник продаж подсказку не показываем.
+        if resolve_case_id(ctx.product_id) != DEFAULT_CASE_ID:
             return None
         idx = ctx.cycle_count % len(ZONE_ORDER)
         zone = ZONE_ORDER[idx]

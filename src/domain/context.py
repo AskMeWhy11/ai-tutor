@@ -34,6 +34,13 @@ class SessionContext:
     # История диалога текущего режима. Сбрасывается при входе в новый режим.
     dialog_history: tuple[ChatMessage, ...] = field(default_factory=tuple)
 
+    # История текущего квиза (вопросы аватара + ответы сотрудника).
+    # Нужна LLM-квизу, чтобы видеть заданный вопрос и весь ход проверки —
+    # иначе модель оценивает ответ вслепую, путается и галлюцинирует.
+    # Живёт отдельно от dialog_history (квиз изолирован) и сбрасывается
+    # при входе в TRAINING_QUIZ.
+    quiz_history: tuple[ChatMessage, ...] = field(default_factory=tuple)
+
     @property
     def knowledge_unlocked(self) -> bool:
         return Mode.PRACTICE in self.completed_modes and bool(self.weak_zones_remaining)

@@ -41,12 +41,19 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["GigaChatQuizDirector"]
 
+# Сколько последних реплик квиза передавать модели (вопросы + ответы).
+_MAX_HISTORY_MSGS = 24
+
 
 _USER_TEMPLATE = """\
 Сотрудник: {employee}
 Цикл практики: {cycle}
 Уже задано вопросов: {asked}
 Правильных ответов всего: {correct_count}
+
+Выше — весь ход квиза (твои вопросы и ответы сотрудника). Оцени ПОСЛЕДНИЙ
+ответ сотрудника именно на ПОСЛЕДНИЙ заданный тобой вопрос — не путай
+вопросы между собой и не придумывай новых требований к ответу.
 
 Последний ответ сотрудника:
 ---
@@ -128,13 +135,17 @@ class GigaChatQuizDirector(QuizDirector):
                 user_text=user_text.strip(),
             )
 
+        # История квиза (вопросы аватара + ответы сотрудника) передаётся
+        # как реальные реплики — иначе модель оценивает ответ вслепую,
+        # путается и галлюцинирует.
+        messages: list[tuple[str, str]] = [("system", system_prompt)]
+        for m in ctx.quiz_history[-_MAX_HISTORY_MSGS:]:
+            role = "assistant" if m.role == "assistant" else "user"
+            messages.append((role, m.text))
+        messages.append(("user", user_msg))
+
         try:
-            raw = await self._chat(
-                [
-                    ("system", system_prompt),
-                    ("user", user_msg),
-                ]
-            )
+            raw = await self._chat(messages)
         except Exception:
             logger.exception("LLM quiz director failed, fallback")
             return await self._fallback.next_turn(ctx, user_text)
@@ -167,14 +178,18 @@ class GigaChatQuizDirector(QuizDirector):
         return ctx.quiz_question_index
 
     async def _chat(self, messages: list[tuple[str, str]]) -> str:
+        from typing import Any
+
         from gigachat.models import Chat, Messages, MessagesRole
 
-        role_map = {
-            "system": MessagesRole.SYSTEM,
-            "user": MessagesRole.USER,
-        }
+        def _role(name: str) -> Any:
+            # MessagesRole в разных версиях SDK имеет разный набор констант.
+            # Если ASSISTANT отсутствует — отдаём строку, SDK её принимает.
+            attr = getattr(MessagesRole, name.upper(), None)
+            return attr if attr is not None else name.lower()
+
         payload = Chat(
-            messages=[Messages(role=role_map[role], content=content) for role, content in messages],
+            messages=[Messages(role=_role(role), content=content) for role, content in messages],
         )
         if self._model:
             payload.model = self._model

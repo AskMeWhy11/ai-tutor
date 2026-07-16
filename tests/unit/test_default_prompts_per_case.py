@@ -10,9 +10,42 @@ def setup_function() -> None:
 
 
 def test_default_mode_prompts_are_product_agnostic() -> None:
-    # Дефолтные шаблоны универсальны и не зависят от case_id —
+    # PRACTICE и KNOWLEDGE универсальны и не зависят от case_id —
     # продукт/контент подставляется позже через render_prompt.
-    assert default_mode_prompts("aida") == default_mode_prompts("cc_novichok")
+    aida = default_mode_prompts("aida")
+    cc = default_mode_prompts("cc_novichok")
+    assert aida[Mode.PRACTICE] == cc[Mode.PRACTICE]
+    assert aida[Mode.KNOWLEDGE] == cc[Mode.KNOWLEDGE]
+
+
+def test_default_example_prompt_differs_for_sales_techniques() -> None:
+    # EXAMPLE для техник продаж: LLM-продавец сам ведёт клиента по всем
+    # этапам техники на конкретном продукте — у cc_novichok этого нет.
+    aida_example = default_mode_prompts("aida")[Mode.EXAMPLE]
+    cc_example = default_mode_prompts("cc_novichok")[Mode.EXAMPLE]
+    assert aida_example != cc_example
+    assert "не товар, а ТЕХНИКА продажи" in aida_example
+    assert "не товар, а ТЕХНИКА продажи" not in cc_example
+
+
+def test_default_training_prompt_differs_for_sales_techniques() -> None:
+    # TRAINING для продуктов-техник продаж требует объяснять маленькими
+    # шагами кратко (2–4 предложения) и не задавать зачётных вопросов —
+    # у cc_novichok этого нет.
+    aida_training = default_mode_prompts("aida")[Mode.TRAINING]
+    cc_training = default_mode_prompts("cc_novichok")[Mode.TRAINING]
+    assert aida_training != cc_training
+    assert "2–4 предложения" in aida_training
+    assert "2–4 предложения" not in cc_training
+
+
+def test_default_quiz_prompt_is_softer_for_sales_techniques() -> None:
+    # Квиз для техник продаж оценивает мягче и не требует лишнего.
+    aida_quiz = default_quiz_prompt("aida")
+    cc_quiz = default_quiz_prompt("cc_novichok")
+    assert aida_quiz != cc_quiz
+    assert "ОЦЕНИВАЙ МЯГКО" in aida_quiz
+    assert "ОЦЕНИВАЙ МЯГКО" not in cc_quiz
 
 
 def test_default_mode_prompts_contain_placeholders() -> None:
@@ -24,14 +57,33 @@ def test_default_mode_prompts_contain_placeholders() -> None:
     assert "{DIALOGUES}" in prompts[Mode.PRACTICE]
 
 
-def test_default_quiz_prompt_is_product_agnostic() -> None:
-    assert default_quiz_prompt("aida") == default_quiz_prompt("cc_novichok")
-    assert "{PRODUCT}" in default_quiz_prompt()
-    assert "{FACTS}" in default_quiz_prompt()
+def test_default_quiz_prompt_contains_placeholders() -> None:
+    for cid in ("cc_novichok", "aida"):
+        assert "{PRODUCT}" in default_quiz_prompt(cid)
+        assert "{FACTS}" in default_quiz_prompt(cid)
 
 
 def test_default_arg_is_cc_novichok() -> None:
     assert default_mode_prompts() == default_mode_prompts("cc_novichok")
+    assert default_quiz_prompt() == default_quiz_prompt("cc_novichok")
+
+
+def test_cc_prompt_name_has_no_course_level_suffix() -> None:
+    # «КК_Новичок» — уровень курса, а не свойство карты: в промпт он попадать
+    # не должен (иначе LLM говорит «кредитная карта для новичков»), а в меню
+    # метка остаётся прежней.
+    from infrastructure.content.registry import case_label, case_product_name
+
+    assert case_product_name("cc_novichok") == "Кредитная карта"
+    assert "Новичок" not in case_product_name("cc_novichok")
+    assert case_label("cc_novichok") == "Кредитная карта (КК_Новичок)"
+
+    rendered = render_prompt(default_mode_prompts("cc_novichok")[Mode.TRAINING], "cc_novichok")
+    assert "Новичок" not in rendered
+
+    # У остальных продуктов название для промпта = метка.
+    for cid in ("xpv", "spin", "pusk", "aida", "storytelling"):
+        assert case_product_name(cid) == case_label(cid)
 
 
 def test_render_makes_prompts_product_specific() -> None:

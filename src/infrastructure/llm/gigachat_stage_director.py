@@ -33,6 +33,8 @@ from application.ports.stage_director import (
 )
 from domain.context import SessionContext
 from domain.states import FSMState
+from infrastructure.content.case_loader import resolve_case_id
+from infrastructure.content.registry import DEFAULT_CASE_ID
 from infrastructure.llm.prompt_store import PromptStore
 
 if TYPE_CHECKING:
@@ -55,6 +57,12 @@ _ALLOWED_BY_STATE: dict[FSMState, frozenset[str]] = {
 
 _ACCEPT_TOKENS = ("оформ", "согласен", "согласна", "давайте", "беру", "хочу карт")
 _REFUSE_TOKENS = ("не нужн", "не хочу", "отказ", "передум", "не интерес")
+
+# Минимум содержательных реплик аватара в TRAINING, прежде чем стадию
+# вообще можно закрывать (техники продаж). Промпт-правила модель нередко
+# игнорирует и уводит в квиз после 2–3 реплик, поэтому держим жёсткий пол:
+# сначала учим, потом спрашиваем. cc_novichok не затрагиваем.
+_MIN_TRAINING_AVATAR_TURNS = 5
 
 
 _USER_TEMPLATE = """\
@@ -104,6 +112,19 @@ def _count_user(ctx: SessionContext) -> int:
     return sum(1 for m in ctx.dialog_history if m.role == "user")
 
 
+def _count_avatar(ctx: SessionContext) -> int:
+    return sum(1 for m in ctx.dialog_history if m.role != "user")
+
+
+def _training_too_early(state: FSMState, ctx: SessionContext) -> bool:
+    """TRAINING техники продаж ещё не набрал минимум реплик теории."""
+    if state is not FSMState.TRAINING:
+        return False
+    if resolve_case_id(ctx.product_id) == DEFAULT_CASE_ID:
+        return False
+    return _count_avatar(ctx) < _MIN_TRAINING_AVATAR_TURNS
+
+
 class GigaChatStageDirector(StageDirector):
     def __init__(
         self,
@@ -127,7 +148,17 @@ class GigaChatStageDirector(StageDirector):
         if allowed is None:
             return StageDecision(False, "continue", "non-stage state")
 
-        system_prompt = self._prompts.get_stage_director_prompt().strip()
+        # Жёсткий пол: не закрываем теорию техники раньше времени —
+        # сначала учим, потом спрашиваем. LLM тут не спрашиваем вовсе.
+        if _training_too_early(state, ctx):
+            logger.info(
+                "stage_director: TRAINING рано закрывать (реплик аватара %d < %d) — continue",
+                _count_avatar(ctx),
+                _MIN_TRAINING_AVATAR_TURNS,
+            )
+            return StageDecision(False, "continue", "теория ещё не рассказана целиком")
+
+        system_prompt = self._prompts.get_stage_director_prompt(ctx.product_id).strip()
         if not system_prompt:
             logger.info("stage_director_prompt пуст — fallback на stub")
             return await self._fallback.decide(state=state, ctx=ctx)

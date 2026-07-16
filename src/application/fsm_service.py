@@ -231,6 +231,7 @@ class FSMService:
             last_answer_correct=None,
             quiz_target_questions=TRAINING_QUIZ_QUESTIONS,
             dialog_history=(),
+            quiz_history=(),
         )
         return FSMResult(new_state, new_ctx, (PersistSession(),))
 

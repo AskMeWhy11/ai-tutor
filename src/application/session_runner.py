@@ -527,7 +527,10 @@ class SessionRunner:
             # следующем ходу видела, на что отвечает сотрудник.
             ctx = dataclasses.replace(
                 ctx,
-                quiz_history=(*ctx.quiz_history, ChatMessage(role="assistant", text=turn.next_question)),
+                quiz_history=(
+                    *ctx.quiz_history,
+                    ChatMessage(role="assistant", text=turn.next_question),
+                ),
             )
             effects = await self._reply_effects(turn.next_question)
             return tuple(effects), ctx

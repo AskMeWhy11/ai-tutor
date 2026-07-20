@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import re
-from functools import lru_cache
 
 from domain.context import SessionContext
 from domain.states import FSMState
@@ -33,12 +32,14 @@ _FACT_ITEM_SPLIT = re.compile(r"(?m)^(?=\d+\.\s)")
 _LEADING_NUMBER = re.compile(r"^\d+\.\s*")
 
 
-@lru_cache(maxsize=8)
 def _theory_blocks(case_id: str) -> tuple[str, ...]:
     """Блоки теории для stub-режима TRAINING.
 
     cc_novichok — курированные TRAINING_BLOCKS. Остальные кейсы — пункты
     их собственного facts.md (чужой контент подмешивать нельзя).
+
+    Не кэшируем: load_case уже под lru_cache и инвалидируется при правке
+    контента в админке; парсинг здесь дешёвый.
 
     Текст стаба уходит в чат напрямую, минуя LLM, поэтому чистим markdown
     и служебную нумерацию пунктов — сотруднику их видеть не нужно.
@@ -156,11 +157,17 @@ class StubAvatar:
                         "Нажми «Зоны проработаны»."
                     )
                 zone_key = weak_zones[user_turns]
-                if is_cc and zone_key in ZONE_ORDER and zone_key in KNOWLEDGE_BLOCKS:
-                    return KNOWLEDGE_BLOCKS[zone_key]
-                if not is_cc and zone_key in ZONE_ORDER:
-                    # KNOWLEDGE_BLOCKS — разбор зон на примере кредитной карты.
-                    return f"Давай разберём зону «{self._zone_label(zone_key)}». В чём, по-твоему, была сложность?"
+                # next(...) вместо `in ZONE_ORDER`: типобезопасно в любых версиях mypy.
+                weak_zone: Zone | None = next((z for z in ZONE_ORDER if z == zone_key), None)
+                if weak_zone is not None:
+                    if is_cc and weak_zone in KNOWLEDGE_BLOCKS:
+                        return KNOWLEDGE_BLOCKS[weak_zone]
+                    if not is_cc:
+                        # KNOWLEDGE_BLOCKS — разбор зон на примере кредитной карты.
+                        return (
+                            f"Давай разберём зону «{self._zone_label(weak_zone)}». "
+                            "В чём, по-твоему, была сложность?"
+                        )
                 return "Все слабые зоны разобрали."
 
         tpl = self._prompts.get_template(state)

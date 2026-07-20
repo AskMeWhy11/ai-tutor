@@ -429,4 +429,6 @@ def default_quiz_prompt(case_id: str = DEFAULT_CASE_ID) -> str:
 
 
 def default_stage_director_prompt(case_id: str = DEFAULT_CASE_ID) -> str:
-    return _STAGE_DIRECTOR_TEMPLATE_TECHNIQUE if case_id != DEFAULT_CASE_ID else _STAGE_DIRECTOR_TEMPLATE
+    if case_id != DEFAULT_CASE_ID:
+        return _STAGE_DIRECTOR_TEMPLATE_TECHNIQUE
+    return _STAGE_DIRECTOR_TEMPLATE

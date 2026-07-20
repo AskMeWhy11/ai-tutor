@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from application.ports.quiz_director import QuizDirector, QuizTurn
 from domain.context import SessionContext
@@ -178,8 +178,6 @@ class GigaChatQuizDirector(QuizDirector):
         return ctx.quiz_question_index
 
     async def _chat(self, messages: list[tuple[str, str]]) -> str:
-        from typing import Any
-
         from gigachat.models import Chat, Messages, MessagesRole
 
         def _role(name: str) -> Any:

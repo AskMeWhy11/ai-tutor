@@ -14,7 +14,7 @@ from domain.context import SessionContext
 from domain.states import FSMState
 from domain.types import ChatMessage
 from infrastructure.content.case_loader import invalidate_case_cache
-from infrastructure.llm.stub_avatar import StubAvatar, _theory_blocks
+from infrastructure.llm.stub_avatar import StubAvatar
 
 _TECHNIQUES = ("xpv", "spin", "pusk", "aida", "storytelling")
 
@@ -24,7 +24,6 @@ _CC_MARKERS = ("СберКарта 120 дней", "ФИКС", "запасной 
 
 def setup_function() -> None:
     invalidate_case_cache()
-    _theory_blocks.cache_clear()
 
 
 def _history(user_turns: int) -> tuple[ChatMessage, ...]:

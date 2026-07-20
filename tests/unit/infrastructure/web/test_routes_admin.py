@@ -1,11 +1,9 @@
-"""Доступ к админке: 401 без креды, 200 с верными, 503 при пустом пароле.
-
-Плюс download/upload файлов кейса cc_novichok.
+"""Доступ к админке: cookie-логин, 303 без сессии для GET, 401 для POST,
+503 при пустом пароле. Плюс download/upload файлов кейса cc_novichok.
 """
 
 from __future__ import annotations
 
-from base64 import b64encode
 from pathlib import Path
 
 import pytest
@@ -14,11 +12,7 @@ from fastapi.testclient import TestClient
 from composition.app import create_app
 from infrastructure.config import Settings
 from infrastructure.content import case_loader
-
-
-def _basic(user: str, password: str) -> dict[str, str]:
-    token = b64encode(f"{user}:{password}".encode()).decode()
-    return {"Authorization": f"Basic {token}"}
+from infrastructure.web.security import ADMIN_COOKIE_NAME
 
 
 def _make_settings(tmp_path: Path, *, password: str = "s3cret") -> Settings:
@@ -29,6 +23,8 @@ def _make_settings(tmp_path: Path, *, password: str = "s3cret") -> Settings:
             "salutespeech_enabled": False,
             "admin_username": "root",
             "admin_password": password,
+            # Тесты ходят по http://, secure-cookie иначе не отправится клиентом.
+            "admin_cookie_secure": False,
         }
     )
 
@@ -44,23 +40,33 @@ def client(settings: Settings) -> TestClient:
 
 
 @pytest.fixture
-def auth() -> dict[str, str]:
-    return _basic("root", "s3cret")
+def auth_client(client: TestClient) -> TestClient:
+    """Тот же клиент, но с валидной cookie-сессией админа."""
+    res = client.post(
+        "/admin/login",
+        data={"username": "root", "password": "s3cret"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303, "логин в фикстуре не прошёл"
+    assert ADMIN_COOKIE_NAME in client.cookies
+    return client
 
 
 def test_admin_get_requires_auth(client: TestClient) -> None:
-    res = client.get("/admin/prompts")
-    assert res.status_code == 401
-    assert "WWW-Authenticate" in res.headers
+    res = client.get("/admin/prompts", follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"].startswith("/admin/login")
 
 
-def test_admin_get_rejects_wrong_password(client: TestClient) -> None:
-    res = client.get("/admin/prompts", headers=_basic("root", "wrong"))
-    assert res.status_code == 401
+def test_admin_get_rejects_invalid_cookie(client: TestClient) -> None:
+    client.cookies.set(ADMIN_COOKIE_NAME, "garbage")
+    res = client.get("/admin/prompts", follow_redirects=False)
+    assert res.status_code == 303
+    assert res.headers["location"].startswith("/admin/login")
 
 
-def test_admin_get_accepts_valid_credentials(client: TestClient, auth: dict[str, str]) -> None:
-    res = client.get("/admin/prompts", headers=auth)
+def test_admin_get_accepts_valid_session(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/prompts")
     assert res.status_code == 200
     assert "Админка" in res.text
 
@@ -73,7 +79,7 @@ def test_admin_post_requires_auth(client: TestClient) -> None:
 def test_admin_disabled_when_password_empty(tmp_path: Path) -> None:
     settings = _make_settings(tmp_path, password="")
     client = TestClient(create_app(settings=settings))
-    res = client.get("/admin/prompts", headers=_basic("admin", "anything"))
+    res = client.get("/admin/prompts", follow_redirects=False)
     assert res.status_code == 503
 
 
@@ -81,30 +87,30 @@ def test_admin_disabled_when_password_empty(tmp_path: Path) -> None:
 
 
 def test_case_download_requires_auth(client: TestClient) -> None:
-    res = client.get("/admin/case/cc_novichok/facts")
-    assert res.status_code == 401
+    res = client.get("/admin/case/cc_novichok/facts", follow_redirects=False)
+    assert res.status_code == 303
 
 
-def test_case_download_facts(client: TestClient, auth: dict[str, str]) -> None:
-    res = client.get("/admin/case/cc_novichok/facts", headers=auth)
+def test_case_download_facts(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/case/cc_novichok/facts")
     assert res.status_code == 200
     assert "markdown" in res.headers["content-type"]
     assert "facts.md" in res.headers.get("content-disposition", "")
 
 
-def test_case_download_dialogues(client: TestClient, auth: dict[str, str]) -> None:
-    res = client.get("/admin/case/cc_novichok/dialogues", headers=auth)
+def test_case_download_dialogues(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/case/cc_novichok/dialogues")
     assert res.status_code == 200
     assert "dialogues.md" in res.headers.get("content-disposition", "")
 
 
-def test_case_download_unknown_case(client: TestClient, auth: dict[str, str]) -> None:
-    res = client.get("/admin/case/unknown/facts", headers=auth)
+def test_case_download_unknown_case(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/case/unknown/facts")
     assert res.status_code == 404
 
 
-def test_case_download_unknown_file(client: TestClient, auth: dict[str, str]) -> None:
-    res = client.get("/admin/case/cc_novichok/readme", headers=auth)
+def test_case_download_unknown_file(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/case/cc_novichok/readme")
     assert res.status_code == 404
 
 
@@ -117,8 +123,7 @@ def test_case_upload_requires_auth(client: TestClient) -> None:
 
 
 def test_case_upload_writes_file_and_invalidates_cache(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -131,9 +136,8 @@ def test_case_upload_writes_file_and_invalidates_cache(
     assert case_loader.load_case("cc_novichok").facts == "old"
 
     new_text = "## Welcome\nПривет, новый кейс!\n\n## Other\nfoo"
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/facts",
-        headers=auth,
         files={"file": ("facts.md", new_text.encode("utf-8"), "text/markdown")},
     )
     assert res.status_code == 200  # после редиректа TestClient следует за 303 → GET 200
@@ -144,8 +148,7 @@ def test_case_upload_writes_file_and_invalidates_cache(
 
 
 def test_case_upload_rejects_non_utf8(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -153,17 +156,15 @@ def test_case_upload_rejects_non_utf8(
     (fake_cases / "cc_novichok").mkdir(parents=True)
     monkeypatch.setattr(case_loader, "_CASES_DIR", fake_cases)
 
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/facts",
-        headers=auth,
         files={"file": ("facts.md", b"\xff\xfe\xfa", "text/markdown")},
     )
     assert res.status_code == 400
 
 
 def test_case_upload_rejects_too_large(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -172,9 +173,8 @@ def test_case_upload_rejects_too_large(
     monkeypatch.setattr(case_loader, "_CASES_DIR", fake_cases)
 
     big = ("a" * (1024 * 1024 + 1)).encode("utf-8")
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/facts",
-        headers=auth,
         files={"file": ("facts.md", big, "text/markdown")},
     )
     assert res.status_code == 413
@@ -212,15 +212,13 @@ def test_restore_requires_auth(client: TestClient) -> None:
 
 
 def test_restore_facts_from_default(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     fake = _setup_fake_cases(monkeypatch, tmp_path)
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/facts/restore",
-        headers=auth,
         follow_redirects=False,
     )
     assert res.status_code == 303
@@ -229,15 +227,13 @@ def test_restore_facts_from_default(
 
 
 def test_restore_checklist_from_default(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _setup_fake_cases(monkeypatch, tmp_path)
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/checklist/restore",
-        headers=auth,
         follow_redirects=False,
     )
     assert res.status_code == 303
@@ -246,8 +242,7 @@ def test_restore_checklist_from_default(
 
 
 def test_restore_missing_default_returns_404(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -255,24 +250,21 @@ def test_restore_missing_default_returns_404(
     (fake_cases / "cc_novichok").mkdir(parents=True)
     (fake_cases / "cc_novichok" / "facts.md").write_text("x", encoding="utf-8")
     monkeypatch.setattr(case_loader, "_CASES_DIR", fake_cases)
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/facts/restore",
-        headers=auth,
         follow_redirects=False,
     )
     assert res.status_code == 404
 
 
 def test_restore_unknown_file_key_404(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _setup_fake_cases(monkeypatch, tmp_path)
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/readme/restore",
-        headers=auth,
         follow_redirects=False,
     )
     assert res.status_code == 404
@@ -282,8 +274,7 @@ def test_restore_unknown_file_key_404(
 
 
 def test_checklist_save_updates_file_and_cache(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -301,9 +292,8 @@ def test_checklist_save_updates_file_and_cache(
         "cl__pitch__0__example_phrases": "",
         "cl__pitch__0__keywords": "",
     }
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/checklist/edit",
-        headers=auth,
         data=form,
         follow_redirects=False,
     )
@@ -324,8 +314,7 @@ def test_checklist_save_updates_file_and_cache(
 
 
 def test_checklist_delete_item(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -344,9 +333,8 @@ def test_checklist_delete_item(
         "cl__needs__1__keywords": "",
         "delete__needs__0": "on",
     }
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/checklist/edit",
-        headers=auth,
         data=form,
         follow_redirects=False,
     )
@@ -359,8 +347,7 @@ def test_checklist_delete_item(
 
 
 def test_checklist_add_appends_empty_item(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -374,9 +361,8 @@ def test_checklist_add_appends_empty_item(
         "cl__pitch__0__keywords": "",
         "action": "add_pitch",
     }
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/cc_novichok/checklist/edit",
-        headers=auth,
         data=form,
         follow_redirects=False,
     )
@@ -406,15 +392,13 @@ def test_checklist_save_requires_auth(client: TestClient) -> None:
 
 
 def test_checklist_save_unknown_case_404(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     _setup_fake_cases(monkeypatch, tmp_path)
-    res = client.post(
+    res = auth_client.post(
         "/admin/case/unknown/checklist/edit",
-        headers=auth,
         data={"cl__needs__0__id": "x"},
         follow_redirects=False,
     )
@@ -424,21 +408,20 @@ def test_checklist_save_unknown_case_404(
 # ---------- мультикейс: селектор и изоляция промптов ----------
 
 
-def test_prompts_page_has_case_selector(client: TestClient, auth: dict[str, str]) -> None:
-    res = client.get("/admin/prompts", headers=auth)
+def test_prompts_page_has_case_selector(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/prompts")
     assert res.status_code == 200
     assert 'name="case_id"' in res.text
     assert 'value="xpv"' in res.text
 
 
-def test_prompts_page_unknown_case_falls_back(client: TestClient, auth: dict[str, str]) -> None:
-    res = client.get("/admin/prompts?case_id=nope", headers=auth)
+def test_prompts_page_unknown_case_falls_back(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/prompts?case_id=nope")
     assert res.status_code == 200  # _resolve_case_id → DEFAULT
 
 
 def test_prompts_post_isolated_per_case(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     settings: Settings,
 ) -> None:
     from infrastructure.llm.prompt_store import PromptStore
@@ -452,7 +435,7 @@ def test_prompts_post_isolated_per_case(
         "quiz_prompt": "XPV-QUIZ",
         "mode__training": "XPV-TRAINING-PROMPT",
     }
-    res = client.post("/admin/prompts", headers=auth, data=form, follow_redirects=False)
+    res = auth_client.post("/admin/prompts", data=form, follow_redirects=False)
     assert res.status_code == 303
     assert "case_id=xpv" in res.headers["location"]
 
@@ -466,8 +449,7 @@ def test_prompts_post_isolated_per_case(
 
 
 def test_case_files_routes_work_for_new_case(
-    client: TestClient,
-    auth: dict[str, str],
+    auth_client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -475,6 +457,6 @@ def test_case_files_routes_work_for_new_case(
     (fake_cases / "xpv").mkdir(parents=True)
     (fake_cases / "xpv" / "facts.md").write_text("XPV facts", encoding="utf-8")
     monkeypatch.setattr(case_loader, "_CASES_DIR", fake_cases)
-    res = client.get("/admin/case/xpv/facts", headers=auth)
+    res = auth_client.get("/admin/case/xpv/facts")
     assert res.status_code == 200
     assert "facts.md" in res.headers.get("content-disposition", "")

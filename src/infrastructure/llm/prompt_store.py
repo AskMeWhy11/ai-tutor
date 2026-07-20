@@ -183,7 +183,12 @@ class PromptStore:
         with self._lock:
             self._system_prompt = system_prompt
             self._templates = {s: t for s, t in templates.items() if s not in DYNAMIC_STATES}
-            if mode_prompts is not None or quiz_prompt is not None or stage_director_prompt is not None:
+            has_overrides = (
+                mode_prompts is not None
+                or quiz_prompt is not None
+                or stage_director_prompt is not None
+            )
+            if has_overrides:
                 bundle = self._bundle(case_id)
                 if mode_prompts is not None:
                     bundle.mode_prompts = {
@@ -389,7 +394,11 @@ class PromptStore:
             if isinstance(sd_raw, str) and sd_raw.strip()
             else default_stage_director_prompt(case_id)
         )
-        return _CaseBundle(mode_prompts=modes, quiz_prompt=quiz, stage_director_prompt=stage_director)
+        return _CaseBundle(
+            mode_prompts=modes,
+            quiz_prompt=quiz,
+            stage_director_prompt=stage_director,
+        )
 
     @staticmethod
     def _parse_modes(case_id: str, loaded_modes: dict[str, Any]) -> dict[Mode, str]:

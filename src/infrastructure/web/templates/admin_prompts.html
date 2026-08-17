@@ -24,6 +24,51 @@
             </select>
             <noscript><button type="submit" class="btn">Открыть</button></noscript>
         </form>
+
+        <div class="admin-export-row">
+            <a class="btn" href="/admin/case/{{ case_id }}/export/prompts" download>Экспорт prompts.yaml</a>
+            <a class="btn" href="/admin/case/{{ case_id }}/export/variables" download>Экспорт variables.yaml</a>
+        </div>
+
+        {# ===== Управление продуктами ===== #}
+        <details class="admin-collapse admin-collapse--outer">
+            <summary class="admin-collapse__summary">
+                Продукты
+                <span class="admin-collapse__meta">список, создание, переименование</span>
+            </summary>
+            <div class="admin-collapse__body">
+                <div class="admin-card">
+                    <h3 class="admin-h3">Существующие продукты</h3>
+                    {% for p in products %}
+                    <form method="post" action="/admin/products/{{ p.id }}/rename" class="admin-row admin-product-row">
+                        <code>{{ p.id }}</code>
+                        <input type="text" name="label" value="{{ p.label }}" required
+                               aria-label="Название продукта {{ p.id }}" />
+                        <input type="text" name="product_name" value="{{ p.product_name }}"
+                               placeholder="Имя для {PRODUCT_NAME} (пусто = название)"
+                               aria-label="Имя темы для промптов {{ p.id }}" />
+                        <button type="submit" class="btn">Переименовать</button>
+                    </form>
+                    {% endfor %}
+                </div>
+                <div class="admin-card">
+                    <h3 class="admin-h3">Новый продукт</h3>
+                    <p class="admin-hint">
+                        id — технический ключ (строчные латинские буквы, цифры, «_», не меняется).
+                        Продукт создаётся с дефолтными промптами и пустым контентом кейса.
+                    </p>
+                    <form method="post" action="/admin/products/create" class="admin-row admin-product-row">
+                        <input type="text" name="case_id" placeholder="id (напр. deposit_pro)"
+                               pattern="[a-z][a-z0-9_]{1,40}" required aria-label="id нового продукта" />
+                        <input type="text" name="label" placeholder="Название" required
+                               aria-label="Название нового продукта" />
+                        <input type="text" name="product_name" placeholder="Имя для {PRODUCT_NAME} (опц.)"
+                               aria-label="Имя темы для промптов" />
+                        <button type="submit" class="btn btn-primary">Создать</button>
+                    </form>
+                </div>
+            </div>
+        </details>
         {% if saved %}
         <div class="admin-flash">Промпты сохранены.</div>
         {% endif %}

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -460,3 +461,106 @@ def test_case_files_routes_work_for_new_case(
     res = auth_client.get("/admin/case/xpv/facts")
     assert res.status_code == 200
     assert "facts.md" in res.headers.get("content-disposition", "")
+
+
+# ---------- продукты: создание / переименование / YAML-экспорт ----------
+
+
+@pytest.fixture
+def products_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    from infrastructure.content import registry
+
+    f = tmp_path / "products.json"
+    monkeypatch.setattr(registry, "_PRODUCTS_FILE", f)
+    registry.invalidate_products_cache()
+    yield f
+    registry.invalidate_products_cache()
+
+
+def test_products_routes_require_auth(client: TestClient) -> None:
+    assert client.post("/admin/products/create", data={}).status_code == 401
+    assert client.post("/admin/products/xpv/rename", data={}).status_code == 401
+
+
+def test_create_product_via_admin(
+    auth_client: TestClient,
+    products_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    fake_cases = tmp_path / "cases"
+    fake_cases.mkdir()
+    monkeypatch.setattr(case_loader, "_CASES_DIR", fake_cases)
+
+    res = auth_client.post(
+        "/admin/products/create",
+        data={"case_id": "deposit_pro", "label": "Вклад Про", "product_name": "Вклад"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert "case_id=deposit_pro" in res.headers["location"]
+    # Скелет контента создан.
+    assert (fake_cases / "deposit_pro" / "facts.md").exists()
+    assert (fake_cases / "deposit_pro" / "default" / "checklist.json").exists()
+    # Продукт виден в селекторе админки.
+    page = auth_client.get("/admin/prompts?case_id=deposit_pro")
+    assert page.status_code == 200
+    assert "Вклад Про" in page.text
+
+
+def test_create_product_invalid_id_400(auth_client: TestClient, products_file: Path) -> None:
+    res = auth_client.post(
+        "/admin/products/create",
+        data={"case_id": "Bad Id", "label": "x"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 400
+
+
+def test_rename_product_via_admin(auth_client: TestClient, products_file: Path) -> None:
+    from infrastructure.content.registry import case_label
+
+    res = auth_client.post(
+        "/admin/products/xpv/rename",
+        data={"label": "ХПВ 2.0", "product_name": "Техника ХПВ"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 303
+    assert case_label("xpv") == "ХПВ 2.0"
+
+
+def test_rename_unknown_product_400(auth_client: TestClient, products_file: Path) -> None:
+    res = auth_client.post(
+        "/admin/products/nope/rename",
+        data={"label": "x"},
+        follow_redirects=False,
+    )
+    assert res.status_code == 400
+
+
+def test_export_yaml_requires_auth(client: TestClient) -> None:
+    res = client.get("/admin/case/cc_novichok/export/prompts", follow_redirects=False)
+    assert res.status_code == 303
+
+
+def test_export_prompts_yaml_download(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/case/cc_novichok/export/prompts")
+    assert res.status_code == 200
+    assert "yaml" in res.headers["content-type"]
+    assert 'filename="prompts-cc-novichok.yaml"' in res.headers["content-disposition"]
+    assert res.text.startswith("prompts:\n  map:\n")
+
+
+def test_export_variables_yaml_download(auth_client: TestClient) -> None:
+    res = auth_client.get("/admin/case/xpv/export/variables")
+    assert res.status_code == 200
+    assert 'filename="variables-xpv.yaml"' in res.headers["content-disposition"]
+    assert res.text.startswith("variables:\n  map:\n")
+
+
+def test_export_unknown_kind_404(auth_client: TestClient) -> None:
+    assert auth_client.get("/admin/case/cc_novichok/export/nope").status_code == 404
+
+
+def test_export_unknown_case_404(auth_client: TestClient) -> None:
+    assert auth_client.get("/admin/case/unknown/export/prompts").status_code == 404

@@ -62,17 +62,6 @@ h1, h2, h3 {
     gap: 18px;
     z-index: 20;
 }
-.sidebar-burger {
-    width: 40px; height: 40px;
-    border: none;
-    background: transparent;
-    border-radius: 10px;
-    cursor: pointer;
-    color: var(--fg);
-    display: grid; place-items: center;
-}
-.sidebar-burger:hover { background: var(--bg-soft); }
-.sidebar-burger svg { width: 22px; height: 22px; }
 
 .sidebar-nav {
     margin-top: 24px;
@@ -134,16 +123,6 @@ h1, h2, h3 {
 
 .topbar-spacer { flex: 1; }
 
-.topbar-icon {
-    width: 40px; height: 40px;
-    border-radius: 12px;
-    display: grid; place-items: center;
-    color: var(--fg);
-    text-decoration: none;
-    transition: background 0.15s;
-}
-.topbar-icon:hover { background: var(--bg-soft); }
-.topbar-icon svg { width: 22px; height: 22px; }
 
 .back-row {
     padding: 0 28px 4px;

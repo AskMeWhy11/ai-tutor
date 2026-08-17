@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 
 from domain.states import FSMState, Mode
 from domain.types import ZONE_ORDER
@@ -19,15 +19,18 @@ from infrastructure.content.case_loader import (
     write_checklist_raw,
 )
 from infrastructure.content.registry import (
-    CASE_REGISTRY,
     DEFAULT_CASE_ID,
+    all_cases,
     available_case_ids,
+    create_product,
+    rename_product,
 )
 from infrastructure.llm.prompt_store import (
     DYNAMIC_STATES,
     EDITABLE_STATES,
     PromptStore,
 )
+from infrastructure.llm.yaml_export import case_slug, export_prompts_yaml, export_variables_yaml
 from infrastructure.web.security import (
     ADMIN_COOKIE_NAME,
     check_credentials,
@@ -73,8 +76,16 @@ def _case_options(selected: str) -> list[dict[str, Any]]:
     allowed = _allowed_cases()
     return [
         {"id": c.case_id, "label": c.label, "selected": c.case_id == selected}
-        for c in CASE_REGISTRY
+        for c in all_cases()
         if c.case_id in allowed
+    ]
+
+
+def _products_view() -> list[dict[str, Any]]:
+    return [
+        {"id": c.case_id, "label": c.label, "product_name": c.product_name}
+        for c in all_cases()
+        if c.available
     ]
 
 
@@ -307,6 +318,7 @@ def build_admin_router() -> list[APIRouter]:
                 "case_saved": case_saved,
                 "checklist_zones": _build_checklist_view(cid),
                 "defaults_available": defaults_available,
+                "products": _products_view(),
             },
         )
 
@@ -483,6 +495,72 @@ def build_admin_router() -> list[APIRouter]:
         return RedirectResponse(
             url=f"/admin/prompts?case_id={cid}&case_saved=customer-profile-restored",
             status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    # ---------- Продукты: создание / переименование / YAML-экспорт ----------
+
+    @router.post("/products/create")
+    async def create_product_route(request: Request) -> RedirectResponse:
+        form = await request.form()
+        case_id = str(form.get("case_id", "")).strip()
+        label = str(form.get("label", "")).strip()
+        product_name = str(form.get("product_name", "")).strip()
+        try:
+            create_product(case_id, label, product_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        # Скелет контента кейса: дефолтная папка + рабочие копии.
+        cdir = case_dir(case_id)
+        (cdir / "default").mkdir(parents=True, exist_ok=True)
+        empty_checklist = '{\n  "needs": [],\n  "pitch": [],\n  "conditions": []\n}\n'
+        for name, content in (
+            ("facts.md", f"# Фактология «{label}»\n"),
+            ("dialogues.md", f"# Образцовые диалоги «{label}»\n"),
+            ("checklist.json", empty_checklist),
+        ):
+            for target in (cdir / name, cdir / "default" / name):
+                if not target.exists():
+                    target.write_text(content, encoding="utf-8")
+        invalidate_case_cache()
+        # Bundle промптов создаётся лениво из дефолтов; форсируем, чтобы
+        # продукт сразу появился в prompts.json.
+        _store(request).snapshot(case_id)
+        logger.info("Product created: %s (%s)", case_id, label)
+        return RedirectResponse(
+            url=f"/admin/prompts?case_id={case_id}&case_saved=product-created",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @router.post("/products/{case_id}/rename")
+    async def rename_product_route(case_id: str, request: Request) -> RedirectResponse:
+        form = await request.form()
+        label = str(form.get("label", "")).strip()
+        product_name = str(form.get("product_name", "")).strip()
+        try:
+            rename_product(case_id, label, product_name)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        logger.info("Product renamed: %s -> %s", case_id, label)
+        return RedirectResponse(
+            url=f"/admin/prompts?case_id={case_id}&case_saved=product-renamed",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @router.get("/case/{case_id}/export/{kind}")
+    def export_case_yaml(case_id: str, kind: str, request: Request) -> PlainTextResponse:
+        if case_id not in _allowed_cases():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown case")
+        if kind == "prompts":
+            content = export_prompts_yaml(_store(request), case_id)
+        elif kind == "variables":
+            content = export_variables_yaml(case_id)
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown export")
+        filename = f"{kind}-{case_slug(case_id)}.yaml"
+        return PlainTextResponse(
+            content,
+            media_type="application/yaml; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     return [public, router]

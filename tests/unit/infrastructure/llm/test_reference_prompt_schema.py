@@ -10,7 +10,12 @@ import pytest
 from application.ports.customer_profile import CustomerProfile
 from domain.states import Mode
 from infrastructure.content.registry import DEFAULT_CASE_ID, editable_case_ids
-from infrastructure.llm.content_render import LEGACY_PLACEHOLDERS, PLACEHOLDERS, render_prompt
+from infrastructure.llm.content_render import (
+    LEGACY_PLACEHOLDERS,
+    PLACEHOLDERS,
+    PROFILE_PLACEHOLDERS,
+    render_prompt,
+)
 from infrastructure.llm.default_prompts import (
     default_customer_profile_system_prompt,
     default_customer_profile_user_prompt,
@@ -58,7 +63,7 @@ def test_prompts_map_keys_follow_reference_grammar() -> None:
 def test_prompts_use_only_reference_placeholders() -> None:
     import re
 
-    allowed = set(PLACEHOLDERS)
+    allowed = set(PLACEHOLDERS) | set(PROFILE_PLACEHOLDERS)
     for key, text in prompts_map().items():
         found = set(re.findall(r"\{([A-Z][A-Z_]*)\}", text))
         assert found <= allowed, f"{key}: неизвестные плейсхолдеры {found - allowed}"

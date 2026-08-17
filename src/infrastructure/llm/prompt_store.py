@@ -18,7 +18,7 @@ from typing import Any, Final
 
 from domain.states import FSMState, Mode
 from infrastructure.content.registry import DEFAULT_CASE_ID, editable_case_ids
-from infrastructure.llm.content_render import LEGACY_PLACEHOLDERS, render_prompt
+from infrastructure.llm.content_render import LEGACY_PLACEHOLDERS, apply_profile, render_prompt
 from infrastructure.llm.default_prompts import (
     default_customer_profile_system_prompt,
     default_customer_profile_user_prompt,
@@ -114,6 +114,9 @@ class _CaseBundle:
     stage_director_prompt: str
     customer_profile_system_prompt: str = ""
     customer_profile_user_prompt: str = ""
+    # Активный сгенерированный профиль клиента ({CLIENT_*} для PRACTICE).
+    # Обновляется при каждом старте практики, переиспользуется внутри сессии.
+    customer_profile: dict[str, str] | None = None
 
 
 class PromptStore:
@@ -169,8 +172,27 @@ class PromptStore:
     def get_mode_prompt(self, mode: Mode, case_id: str | None = None) -> str:
         self._ensure_loaded()
         with self._lock:
-            template = self._bundle(case_id).mode_prompts.get(mode, "")
-        return render_prompt(template, case_id)
+            bundle = self._bundle(case_id)
+            template = bundle.mode_prompts.get(mode, "")
+            profile = bundle.customer_profile
+        rendered = render_prompt(template, case_id)
+        if mode is Mode.PRACTICE:
+            rendered = apply_profile(rendered, profile)
+        return rendered
+
+    def set_customer_profile(self, profile: Any, case_id: str | None = None) -> None:
+        """Сохранить активный профиль клиента (объект с as_placeholders())."""
+        values = dict(profile.as_placeholders())
+        self._ensure_loaded()
+        with self._lock:
+            self._bundle(case_id).customer_profile = values
+            self._flush_unlocked()
+
+    def get_customer_profile(self, case_id: str | None = None) -> dict[str, str] | None:
+        self._ensure_loaded()
+        with self._lock:
+            profile = self._bundle(case_id).customer_profile
+            return dict(profile) if profile else None
 
     def get_quiz_prompt(self, case_id: str | None = None) -> str:
         self._ensure_loaded()
@@ -185,8 +207,7 @@ class PromptStore:
             cid = self._resolve_case(case_id)
             bundle = self._bundle(cid)
             system = (
-                bundle.customer_profile_system_prompt
-                or default_customer_profile_system_prompt(cid)
+                bundle.customer_profile_system_prompt or default_customer_profile_system_prompt(cid)
             )
             user = bundle.customer_profile_user_prompt or default_customer_profile_user_prompt(cid)
         return render_prompt(system, cid), render_prompt(user, cid)
@@ -280,8 +301,7 @@ class PromptStore:
                     or default_customer_profile_system_prompt(cid)
                 ),
                 customer_profile_user_prompt=(
-                    bundle.customer_profile_user_prompt
-                    or default_customer_profile_user_prompt(cid)
+                    bundle.customer_profile_user_prompt or default_customer_profile_user_prompt(cid)
                 ),
                 case_id=cid,
             )
@@ -474,12 +494,19 @@ class PromptStore:
             if isinstance(cp_user_raw, str) and cp_user_raw.strip()
             else default_customer_profile_user_prompt(case_id)
         )
+        profile_raw = entry.get("customer_profile")
+        profile = (
+            {str(k): str(v) for k, v in profile_raw.items()}
+            if isinstance(profile_raw, dict) and profile_raw
+            else None
+        )
         return _CaseBundle(
             mode_prompts=modes,
             quiz_prompt=quiz,
             stage_director_prompt=stage_director,
             customer_profile_system_prompt=cp_sys,
             customer_profile_user_prompt=cp_user,
+            customer_profile=profile,
         )
 
     @staticmethod
@@ -508,6 +535,7 @@ class PromptStore:
                     "stage_director_prompt": b.stage_director_prompt,
                     "customer_profile_system_prompt": b.customer_profile_system_prompt,
                     "customer_profile_user_prompt": b.customer_profile_user_prompt,
+                    "customer_profile": b.customer_profile,
                 }
                 for cid, b in self._cases.items()
             },

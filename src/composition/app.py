@@ -118,6 +118,8 @@ def create_app(
         practice_evaluator=evaluator,
         quiz_director=director,
         stage_director=stage,
+        customer_profile_generator=profile_generator,
+        customer_profile_store=prompt_store,
     )
 
     app.state.settings = settings

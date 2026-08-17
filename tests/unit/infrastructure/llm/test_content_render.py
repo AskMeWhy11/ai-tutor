@@ -1,12 +1,19 @@
+import pytest
+
 from infrastructure.llm.content_render import render_prompt
 
 
-def _patch_case(monkeypatch, facts="F", dialogues="D", product="Продукт"):
+def _patch_case(
+    monkeypatch: pytest.MonkeyPatch,
+    facts: str = "F",
+    dialogues: str = "D",
+    product: str = "Продукт",
+) -> None:
     import infrastructure.llm.content_render as render_mod
     import infrastructure.llm.variables as vars_mod
 
     class _Case:
-        def __init__(self):
+        def __init__(self) -> None:
             self.facts = facts
             self.dialogues = dialogues
 
@@ -16,7 +23,7 @@ def _patch_case(monkeypatch, facts="F", dialogues="D", product="Продукт")
         vars_mod,
         "VARIABLES_MAP",
         {
-            "product-name": vars_mod.case_product_name,
+            "product-name": lambda cid: product,
             "product-details": vars_mod._product_details,
             "real-dialogues": vars_mod._real_dialogues,
             "learning-details": vars_mod._product_details,

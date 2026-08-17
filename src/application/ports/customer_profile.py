@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-__all__ = ["CustomerProfile", "CustomerProfileGenerator"]
+__all__ = ["CustomerProfile", "CustomerProfileGenerator", "CustomerProfileStore"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,3 +37,11 @@ class CustomerProfileGenerator(Protocol):
     async def generate(self, *, case_id: str | None = None) -> CustomerProfile:
         """Сгенерировать профиль клиента для кейса."""
         ...
+
+
+class CustomerProfileStore(Protocol):
+    """Хранилище активного профиля клиента (реализуется PromptStore)."""
+
+    def set_customer_profile(
+        self, profile: CustomerProfile, case_id: str | None = None
+    ) -> None: ...

@@ -191,6 +191,11 @@ _PRACTICE_TEMPLATE: Final[str] = """\
 6. Никогда не выходи из роли собеседника.
 7. НЕ упоминай кнопок — стадией управляет наставник автоматически.
 
+ПРОФИЛЬ КЛИЕНТА (отыгрывай именно этого человека):
+- Имя: {CLIENT_NAME}, возраст: {CLIENT_AGE}, пол: {CLIENT_GENDER}
+- Характер: {CLIENT_CHARACTER}
+- Жизненная ситуация/потребность: {BASE_REQUIRE}
+
 ФАКТОЛОГИЯ (для тебя — справочно):
 {PRODUCT_DETAILS}
 
@@ -497,8 +502,8 @@ def prompts_map() -> dict[str, str]:
         out[f"{slug}-create-customer-profile-system-prompt"] = (
             default_customer_profile_system_prompt(cid)
         )
-        out[f"{slug}-create-customer-profile-user-prompt"] = (
-            default_customer_profile_user_prompt(cid)
+        out[f"{slug}-create-customer-profile-user-prompt"] = default_customer_profile_user_prompt(
+            cid
         )
     return out
 

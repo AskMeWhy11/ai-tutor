@@ -42,6 +42,7 @@ from application.effects import (
 from application.fsm_service import FSMResult, FSMService
 from application.ports.answer_checker import AnswerChecker
 from application.ports.avatar import AvatarClient
+from application.ports.customer_profile import CustomerProfileGenerator, CustomerProfileStore
 from application.ports.practice_evaluator import PracticeEvaluator
 from application.ports.quiz_director import QuizDirector
 from application.ports.session_store import SessionStore
@@ -101,6 +102,8 @@ class SessionRunner:
         practice_evaluator: PracticeEvaluator | None = None,
         quiz_director: QuizDirector | None = None,
         stage_director: StageDirector | None = None,
+        customer_profile_generator: CustomerProfileGenerator | None = None,
+        customer_profile_store: CustomerProfileStore | None = None,
     ) -> None:
         self._fsm = fsm
         self._store = store
@@ -111,6 +114,8 @@ class SessionRunner:
         self._practice_evaluator = practice_evaluator
         self._quiz_director = quiz_director
         self._stage_director = stage_director
+        self._customer_profile_generator = customer_profile_generator
+        self._customer_profile_store = customer_profile_store
 
     # ------------------------------------------------------------------
     # Точка входа
@@ -535,6 +540,9 @@ class SessionRunner:
             effects = await self._reply_effects(turn.next_question)
             return tuple(effects), ctx
 
+        if state is FSMState.PRACTICE and not ctx.dialog_history:
+            await self._prepare_customer_profile(ctx)
+
         if self._avatar is None:
             return (), ctx
         try:
@@ -570,6 +578,22 @@ class SessionRunner:
             new_ctx = dataclasses.replace(ctx, dialog_history=new_history)
 
         return tuple(avatar_fx), new_ctx
+
+    async def _prepare_customer_profile(self, ctx: SessionContext) -> None:
+        """Старт практики: сгенерировать профиль клиента и сохранить в bundle.
+
+        Профиль подставляется в {CLIENT_*} employee-промпта (PromptStore.
+        get_mode_prompt) и переиспользуется до следующего старта практики.
+        Ошибка генерации не блокирует практику — останутся нейтральные значения.
+        """
+        if self._customer_profile_generator is None or self._customer_profile_store is None:
+            return
+        case_id = ctx.product_id or None
+        try:
+            profile = await self._customer_profile_generator.generate(case_id=case_id)
+            self._customer_profile_store.set_customer_profile(profile, case_id)
+        except Exception:
+            logger.exception("customer profile generation failed (case_id=%s)", case_id)
 
     @staticmethod
     def _build_hint(state: FSMState, ctx: SessionContext) -> EmitHint | None:

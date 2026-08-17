@@ -17,10 +17,41 @@ from typing import Final
 from infrastructure.content.case_loader import resolve_case_id
 from infrastructure.llm.variables import VARIABLES_MAP, placeholder_name, resolve_variable
 
-__all__ = ["LEGACY_PLACEHOLDERS", "PLACEHOLDERS", "render_prompt", "strip_markdown_emphasis"]
+__all__ = [
+    "LEGACY_PLACEHOLDERS",
+    "PLACEHOLDERS",
+    "PROFILE_PLACEHOLDERS",
+    "apply_profile",
+    "render_prompt",
+    "strip_markdown_emphasis",
+]
 
 # Эталонные плейсхолдеры — UPPER_SNAKE от kebab-ключей variables.map.
 PLACEHOLDERS: Final[tuple[str, ...]] = tuple(placeholder_name(k) for k in VARIABLES_MAP)
+
+# Плейсхолдеры профиля клиента (эталон: create-customer-profile).
+# Значения приходят не из контента кейса, а из сгенерированного профиля,
+# поэтому подставляются отдельным проходом (apply_profile).
+PROFILE_PLACEHOLDERS: Final[tuple[str, ...]] = (
+    "CLIENT_NAME",
+    "CLIENT_AGE",
+    "CLIENT_GENDER",
+    "CLIENT_CHARACTER",
+    "BASE_REQUIRE",
+)
+
+# Нейтральный профиль на случай, когда генератор ещё не отработал.
+PROFILE_DEFAULTS: Final[dict[str, str]] = {
+    "CLIENT_NAME": "Клиент",
+    "CLIENT_AGE": "35",
+    "CLIENT_GENDER": "м",
+    "CLIENT_CHARACTER": "нейтральный, отвечает по ситуации",
+    "BASE_REQUIRE": "интересуется продуктом, потребность пока не раскрыта",
+}
+
+_PROFILE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\{(" + "|".join(PROFILE_PLACEHOLDERS) + r")\}"
+)
 
 # Старый нейминг → эталонный (для текстов, сохранённых до миграции).
 LEGACY_PLACEHOLDERS: Final[dict[str, str]] = {
@@ -69,3 +100,15 @@ def render_prompt(template: str, case_id: str | None = None) -> str:
         return value
 
     return _PATTERN.sub(_sub, template)
+
+
+def apply_profile(text: str, profile: dict[str, str] | None) -> str:
+    """Подставить {CLIENT_*}/{BASE_REQUIRE} из профиля клиента.
+
+    Профиль не задан → нейтральные значения (PROFILE_DEFAULTS), чтобы
+    плейсхолдеры не утекали в LLM.
+    """
+    if not text or "{" not in text:
+        return text
+    values = {**PROFILE_DEFAULTS, **(profile or {})}
+    return _PROFILE_PATTERN.sub(lambda m: values.get(m.group(1), m.group(0)), text)

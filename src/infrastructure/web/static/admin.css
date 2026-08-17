@@ -386,8 +386,24 @@
 /* Управление продуктами и YAML-экспорт */
 .admin-export-row {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     margin: 8px 0 16px;
+}
+/* Экспорт: outline-вариант бренда — заметен, но не спорит с btn-primary. */
+.btn-export {
+    color: var(--brand);
+    background: transparent;
+    border: 1px solid var(--brand-soft, #a78bfa);
+}
+.btn-export svg {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+}
+.btn-export:hover {
+    background: rgba(124, 58, 237, 0.08);
+    border-color: var(--brand);
+    color: var(--brand-dark, #5b21b6);
 }
 .admin-product-row {
     justify-content: flex-start;

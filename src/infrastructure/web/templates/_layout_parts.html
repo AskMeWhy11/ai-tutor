@@ -2,43 +2,7 @@
 
 {% macro sidebar(active='') %}
 <aside class="sidebar" aria-label="Главное меню">
-    <button class="sidebar-burger" type="button" aria-label="Меню">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="6" x2="21" y2="6"/>
-            <line x1="3" y1="12" x2="21" y2="12"/>
-            <line x1="3" y1="18" x2="21" y2="18"/>
-        </svg>
-    </button>
-
     <nav class="sidebar-nav">
-        <a href="#" class="sidebar-item {% if active == 'mood' %}is-active{% endif %}"
-           title="Настроение">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
-                <line x1="9" y1="9" x2="9.01" y2="9"/>
-                <line x1="15" y1="9" x2="15.01" y2="9"/>
-            </svg>
-        </a>
-        <a href="#" class="sidebar-item {% if active == 'history' %}is-active{% endif %}"
-           title="История">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"/>
-                <polyline points="12 7 12 12 15 14"/>
-            </svg>
-        </a>
-        <a href="#" class="sidebar-item {% if active == 'cart' %}is-active{% endif %}"
-           title="Программы">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="9" cy="21" r="1"/>
-                <circle cx="20" cy="21" r="1"/>
-                <path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/>
-            </svg>
-        </a>
         <a href="/admin/prompts"
            class="sidebar-item sidebar-item--accent {% if active == 'admin' %}is-active{% endif %}"
            title="Админка">
@@ -68,21 +32,6 @@
     </a>
 
     <div class="topbar-spacer"></div>
-
-    <a href="#" class="topbar-icon" title="Бренд" aria-label="Бренд">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="9"/>
-            <path d="M8 12c2-4 6-4 8 0"/>
-        </svg>
-    </a>
-    <a href="#" class="topbar-icon" title="Уведомления" aria-label="Уведомления">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-            <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
-        </svg>
-    </a>
 </header>
 
 {% if back_url %}

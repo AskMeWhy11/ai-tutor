@@ -16,6 +16,7 @@ from starlette.requests import Request as _StReq
 from application.fsm_service import FSMService
 from application.ports.answer_checker import AnswerChecker
 from application.ports.avatar import AvatarClient
+from application.ports.customer_profile import CustomerProfileGenerator
 from application.ports.practice_evaluator import PracticeEvaluator
 from application.ports.quiz_director import QuizDirector
 from application.ports.session_store import SessionStore
@@ -27,6 +28,7 @@ from infrastructure.config import Settings, get_settings
 from infrastructure.llm.prompt_store import PromptStore
 from infrastructure.llm.stub_avatar import StubAvatar
 from infrastructure.llm.stub_checker import StubAnswerChecker
+from infrastructure.llm.stub_customer_profile import StubCustomerProfileGenerator
 from infrastructure.llm.stub_practice_evaluator import StubPracticeEvaluator
 from infrastructure.llm.stub_quiz_director import StubQuizDirector
 from infrastructure.llm.stub_stage_director import StubStageDirector
@@ -63,6 +65,7 @@ def create_app(
     practice_evaluator: PracticeEvaluator | None = None,
     quiz_director: QuizDirector | None = None,
     stage_director: StageDirector | None = None,
+    customer_profile_generator: CustomerProfileGenerator | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
 
@@ -101,6 +104,9 @@ def create_app(
     evaluator = practice_evaluator or _build_practice_evaluator(settings, gigachat_client)
     director = quiz_director or _build_quiz_director(settings, prompt_store, gigachat_client)
     stage = stage_director or _build_stage_director(settings, prompt_store, gigachat_client)
+    profile_generator = customer_profile_generator or _build_customer_profile_generator(
+        settings, prompt_store, gigachat_client
+    )
 
     runner = SessionRunner(
         fsm=fsm,
@@ -119,6 +125,7 @@ def create_app(
     app.state.runner = runner
     app.state.audio_cache = audio_cache
     app.state.prompt_store = prompt_store
+    app.state.customer_profile_generator = profile_generator
     app.state.stt = stt_client
     app.state.templates = Jinja2Templates(directory=_TEMPLATES_DIR)
 
@@ -254,6 +261,31 @@ def _build_stage_director(
         return stub
     logger.info("GigaChatStageDirector активирован")
     return GigaChatStageDirector(
+        client=client,
+        prompt_store=prompt_store,
+        fallback=stub,
+        model=settings.gigachat_model,
+    )
+
+
+def _build_customer_profile_generator(
+    settings: Settings,
+    prompt_store: PromptStore,
+    client: GigaChat | None,
+) -> CustomerProfileGenerator:
+    stub = StubCustomerProfileGenerator()
+    if client is None:
+        logger.info("GIGACHAT не настроен — используется StubCustomerProfileGenerator")
+        return stub
+    try:
+        from infrastructure.llm.gigachat_customer_profile import (
+            GigaChatCustomerProfileGenerator,
+        )
+    except Exception:
+        logger.exception("GigaChatCustomerProfileGenerator import failed — fallback на stub")
+        return stub
+    logger.info("GigaChatCustomerProfileGenerator активирован")
+    return GigaChatCustomerProfileGenerator(
         client=client,
         prompt_store=prompt_store,
         fallback=stub,

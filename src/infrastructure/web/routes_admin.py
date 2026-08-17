@@ -301,6 +301,8 @@ def build_admin_router() -> list[APIRouter]:
                 "modes": _build_modes(snap),
                 "quiz_prompt": snap.quiz_prompt,
                 "stage_director_prompt": snap.stage_director_prompt,
+                "customer_profile_system_prompt": snap.customer_profile_system_prompt,
+                "customer_profile_user_prompt": snap.customer_profile_user_prompt,
                 "saved": bool(saved),
                 "case_saved": case_saved,
                 "checklist_zones": _build_checklist_view(cid),
@@ -317,6 +319,8 @@ def build_admin_router() -> list[APIRouter]:
         system_prompt = str(form.get("system_prompt", ""))
         quiz_prompt = str(form.get("quiz_prompt", ""))
         stage_director_prompt = str(form.get("stage_director_prompt", ""))
+        profile_system = str(form.get("customer_profile_system_prompt", ""))
+        profile_user = str(form.get("customer_profile_user_prompt", ""))
 
         editable_names = {s.value: s for s in EDITABLE_STATES}
         templates: dict[FSMState, str] = {}
@@ -341,6 +345,8 @@ def build_admin_router() -> list[APIRouter]:
             mode_prompts=mode_prompts,
             quiz_prompt=quiz_prompt,
             stage_director_prompt=stage_director_prompt,
+            customer_profile_system_prompt=profile_system or None,
+            customer_profile_user_prompt=profile_user or None,
             case_id=cid,
         )
         return RedirectResponse(
@@ -466,6 +472,16 @@ def build_admin_router() -> list[APIRouter]:
         logger.info("Quiz prompt restored: %s", cid)
         return RedirectResponse(
             url=f"/admin/prompts?case_id={cid}&case_saved=quiz-restored",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @router.post("/prompts/{case_id}/customer-profile/restore")
+    def restore_customer_profile(case_id: str, request: Request) -> RedirectResponse:
+        cid = _resolve_case_id(case_id)
+        _store(request).restore_customer_profile_prompts(cid)
+        logger.info("Customer profile prompts restored: %s", cid)
+        return RedirectResponse(
+            url=f"/admin/prompts?case_id={cid}&case_saved=customer-profile-restored",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

@@ -23,14 +23,14 @@ class CaseInfo:
     label: str
     available: bool
     preza: str = ""
-    # Название темы для подстановки в {PRODUCT} промптов. Отличается от
+    # Название темы для подстановки в {PRODUCT_NAME} промптов. Отличается от
     # label там, где в метке есть служебная часть (уровень курса и т.п.),
     # которую LLM может принять за свойство продукта. Пусто → берём label.
     product_name: str = ""
 
     @property
     def prompt_name(self) -> str:
-        """Название темы, которое видит LLM в {PRODUCT}."""
+        """Название темы, которое видит LLM в {PRODUCT_NAME}."""
         return self.product_name or self.label
 
     @property
@@ -81,7 +81,7 @@ def case_label(case_id: str) -> str:
 
 
 def case_product_name(case_id: str) -> str:
-    """Название темы для {PRODUCT} в промптах. Неизвестный id → сам id."""
+    """Название темы для {PRODUCT_NAME} в промптах. Неизвестный id → сам id."""
     for c in CASE_REGISTRY:
         if c.case_id == case_id:
             return c.prompt_name

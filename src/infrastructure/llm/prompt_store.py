@@ -18,8 +18,10 @@ from typing import Any, Final
 
 from domain.states import FSMState, Mode
 from infrastructure.content.registry import DEFAULT_CASE_ID, editable_case_ids
-from infrastructure.llm.content_render import render_prompt
+from infrastructure.llm.content_render import LEGACY_PLACEHOLDERS, render_prompt
 from infrastructure.llm.default_prompts import (
+    default_customer_profile_system_prompt,
+    default_customer_profile_user_prompt,
     default_mode_prompts,
     default_quiz_prompt,
     default_stage_director_prompt,
@@ -53,7 +55,10 @@ EDITABLE_STATES: Final[tuple[FSMState, ...]] = tuple(s for s in FSMState if s no
 #     {FACTS}/{DIALOGUES}; контент подставляется при чтении (render_prompt).
 # v7: stage_director_prompt переехал из глобального поля в per-case bundle
 #     (свой вариант для продуктов-техник продаж и для cc_novichok).
-_SCHEMA_VERSION: Final[int] = 7
+# v8: плейсхолдеры переименованы в эталонный нейминг ({PRODUCT_DETAILS}/
+#     {REAL_DIALOGUES}/{PRODUCT_NAME}); в bundle добавлены промпты
+#     create-customer-profile (system/user-пара).
+_SCHEMA_VERSION: Final[int] = 8
 
 
 def default_templates() -> dict[FSMState, str]:
@@ -97,6 +102,8 @@ class PromptSnapshot:
     mode_prompts: dict[Mode, str] = field(default_factory=dict)
     quiz_prompt: str = ""
     stage_director_prompt: str = ""
+    customer_profile_system_prompt: str = ""
+    customer_profile_user_prompt: str = ""
     case_id: str = DEFAULT_CASE_ID
 
 
@@ -105,6 +112,8 @@ class _CaseBundle:
     mode_prompts: dict[Mode, str]
     quiz_prompt: str
     stage_director_prompt: str
+    customer_profile_system_prompt: str = ""
+    customer_profile_user_prompt: str = ""
 
 
 class PromptStore:
@@ -169,6 +178,30 @@ class PromptStore:
             template = self._bundle(case_id).quiz_prompt
         return render_prompt(template, case_id)
 
+    def get_customer_profile_prompts(self, case_id: str | None = None) -> tuple[str, str]:
+        """(system, user) промпты create-customer-profile с подставленным контентом."""
+        self._ensure_loaded()
+        with self._lock:
+            cid = self._resolve_case(case_id)
+            bundle = self._bundle(cid)
+            system = (
+                bundle.customer_profile_system_prompt
+                or default_customer_profile_system_prompt(cid)
+            )
+            user = bundle.customer_profile_user_prompt or default_customer_profile_user_prompt(cid)
+        return render_prompt(system, cid), render_prompt(user, cid)
+
+    def restore_customer_profile_prompts(self, case_id: str | None = None) -> tuple[str, str]:
+        """Сбросить промпты профиля клиента к дефолту."""
+        self._ensure_loaded()
+        with self._lock:
+            cid = self._resolve_case(case_id)
+            bundle = self._bundle(cid)
+            bundle.customer_profile_system_prompt = default_customer_profile_system_prompt(cid)
+            bundle.customer_profile_user_prompt = default_customer_profile_user_prompt(cid)
+            self._flush_unlocked()
+            return bundle.customer_profile_system_prompt, bundle.customer_profile_user_prompt
+
     def replace_all(
         self,
         system_prompt: str,
@@ -176,6 +209,8 @@ class PromptStore:
         mode_prompts: dict[Mode, str] | None = None,
         quiz_prompt: str | None = None,
         stage_director_prompt: str | None = None,
+        customer_profile_system_prompt: str | None = None,
+        customer_profile_user_prompt: str | None = None,
         case_id: str | None = None,
     ) -> None:
         """Сохранить глобальные промпты + per-case (mode/quiz) для case_id."""
@@ -187,6 +222,8 @@ class PromptStore:
                 mode_prompts is not None
                 or quiz_prompt is not None
                 or stage_director_prompt is not None
+                or customer_profile_system_prompt is not None
+                or customer_profile_user_prompt is not None
             )
             if has_overrides:
                 bundle = self._bundle(case_id)
@@ -198,6 +235,10 @@ class PromptStore:
                     bundle.quiz_prompt = quiz_prompt
                 if stage_director_prompt is not None:
                     bundle.stage_director_prompt = stage_director_prompt
+                if customer_profile_system_prompt is not None:
+                    bundle.customer_profile_system_prompt = customer_profile_system_prompt
+                if customer_profile_user_prompt is not None:
+                    bundle.customer_profile_user_prompt = customer_profile_user_prompt
             self._flush_unlocked()
 
     def restore_mode_prompt(self, mode: Mode, case_id: str | None = None) -> str:
@@ -234,6 +275,14 @@ class PromptStore:
                 mode_prompts=modes,
                 quiz_prompt=bundle.quiz_prompt,
                 stage_director_prompt=bundle.stage_director_prompt,
+                customer_profile_system_prompt=(
+                    bundle.customer_profile_system_prompt
+                    or default_customer_profile_system_prompt(cid)
+                ),
+                customer_profile_user_prompt=(
+                    bundle.customer_profile_user_prompt
+                    or default_customer_profile_user_prompt(cid)
+                ),
                 case_id=cid,
             )
 
@@ -332,6 +381,25 @@ class PromptStore:
             # Миграция v4→v5: глобальные mode_prompts/quiz_prompt → DEFAULT_CASE_ID.
             self._cases = self._migrate_legacy_unlocked(raw, legacy_sd)
 
+        if version < 8:
+            self._migrate_placeholders_unlocked()
+            self._flush_unlocked()
+
+    def _migrate_placeholders_unlocked(self) -> None:
+        """v8: legacy-плейсхолдеры в сохранённых текстах → эталонный нейминг."""
+
+        def _fix(text: str) -> str:
+            for old, new in LEGACY_PLACEHOLDERS.items():
+                text = text.replace("{" + old + "}", "{" + new + "}")
+            return text
+
+        self._system_prompt = _fix(self._system_prompt)
+        self._templates = {s: _fix(t) for s, t in self._templates.items()}
+        for bundle in self._cases.values():
+            bundle.mode_prompts = {m: _fix(t) for m, t in bundle.mode_prompts.items()}
+            bundle.quiz_prompt = _fix(bundle.quiz_prompt)
+            bundle.stage_director_prompt = _fix(bundle.stage_director_prompt)
+
     def _load_cases_unlocked(self, cases_raw: dict[str, Any]) -> dict[str, _CaseBundle]:
         out: dict[str, _CaseBundle] = {}
         for cid in editable_case_ids():
@@ -394,10 +462,24 @@ class PromptStore:
             if isinstance(sd_raw, str) and sd_raw.strip()
             else default_stage_director_prompt(case_id)
         )
+        cp_sys_raw = entry.get("customer_profile_system_prompt")
+        cp_sys = (
+            cp_sys_raw
+            if isinstance(cp_sys_raw, str) and cp_sys_raw.strip()
+            else default_customer_profile_system_prompt(case_id)
+        )
+        cp_user_raw = entry.get("customer_profile_user_prompt")
+        cp_user = (
+            cp_user_raw
+            if isinstance(cp_user_raw, str) and cp_user_raw.strip()
+            else default_customer_profile_user_prompt(case_id)
+        )
         return _CaseBundle(
             mode_prompts=modes,
             quiz_prompt=quiz,
             stage_director_prompt=stage_director,
+            customer_profile_system_prompt=cp_sys,
+            customer_profile_user_prompt=cp_user,
         )
 
     @staticmethod
@@ -424,6 +506,8 @@ class PromptStore:
                     "mode_prompts": {m.value: b.mode_prompts.get(m, "") for m in Mode},
                     "quiz_prompt": b.quiz_prompt,
                     "stage_director_prompt": b.stage_director_prompt,
+                    "customer_profile_system_prompt": b.customer_profile_system_prompt,
+                    "customer_profile_user_prompt": b.customer_profile_user_prompt,
                 }
                 for cid, b in self._cases.items()
             },

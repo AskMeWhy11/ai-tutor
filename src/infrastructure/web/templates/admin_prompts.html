@@ -203,15 +203,20 @@
                     onsubmit="return confirm('Восстановить квиз-промпт по умолчанию? Текущий текст будет перезаписан.');">
                 </form>
 
+                <form method="post" id="restore-customer-profile"
+                    action="/admin/prompts/{{ case_id }}/customer-profile/restore"
+                    onsubmit="return confirm('Восстановить промпты профиля клиента по умолчанию? Текущий текст будет перезаписан.');">
+                </form>
+
                 {# ===== Промпты режимов / квиз ===== #}
                 <form method="post" action="/admin/prompts" class="admin-form">
                     <input type="hidden" name="case_id" value="{{ case_id }}">
                     <h3 class="admin-h3">Режимы диалога (LLM-аватар)</h3>
                     <p class="admin-hint">
                         Доступные плейсхолдеры (подставляются автоматически при использовании):
-                        <code>{PRODUCT}</code> — название продукта/техники,
-                        <code>{FACTS}</code> — фактология кейса,
-                        <code>{DIALOGUES}</code> — образцовые диалоги.
+                        <code>{PRODUCT_NAME}</code> — название продукта/техники,
+                        <code>{PRODUCT_DETAILS}</code> — фактология кейса,
+                        <code>{REAL_DIALOGUES}</code> — образцовые диалоги.
                         Остальные фигурные скобки (в т.ч. JSON) не трогаются.
                     </p>
                     {% for mode in modes %}
@@ -234,7 +239,7 @@
                         Управляет генерацией вопросов и оценкой ответов после теории.
                         Должен возвращать строгий JSON:
                         <code>{verdict, explanation, next_question, done}</code>.
-                        Плейсхолдеры: <code>{PRODUCT}</code>, <code>{FACTS}</code>.
+                        Плейсхолдеры: <code>{PRODUCT_NAME}</code>, <code>{PRODUCT_DETAILS}</code>.
                     </p>
                     <div class="admin-card">
                         <div class="admin-row">
@@ -246,6 +251,35 @@
                             </div>
                         </div>
                         <textarea id="quiz_prompt" name="quiz_prompt" rows="20">{{ quiz_prompt }}</textarea>
+                    </div>
+
+                    <h3 class="admin-h3">Профиль клиента (create-customer-profile)</h3>
+                    <p class="admin-hint">
+                        System/user-пара для генерации профиля клиента перед практикой.
+                        Модель должна вернуть строгий JSON:
+                        <code>{client_name, client_age, client_gender, client_character, base_require}</code>.
+                        Плейсхолдеры: <code>{PRODUCT_NAME}</code>, <code>{PRODUCT_DETAILS}</code>.
+                    </p>
+                    <div class="admin-card">
+                        <div class="admin-row">
+                            <label class="admin-label" for="customer_profile_system_prompt">
+                                CREATE-CUSTOMER-PROFILE — system</label>
+                            <div class="admin-row-actions">
+                                <button type="submit" class="btn btn-primary">Сохранить промпты</button>
+                                <button type="submit" form="restore-customer-profile" class="btn btn-warn">
+                                    Восстановить по умолчанию</button>
+                            </div>
+                        </div>
+                        <textarea id="customer_profile_system_prompt" name="customer_profile_system_prompt"
+                            rows="16">{{ customer_profile_system_prompt }}</textarea>
+                    </div>
+                    <div class="admin-card">
+                        <div class="admin-row">
+                            <label class="admin-label" for="customer_profile_user_prompt">
+                                CREATE-CUSTOMER-PROFILE — user</label>
+                        </div>
+                        <textarea id="customer_profile_user_prompt" name="customer_profile_user_prompt"
+                            rows="6">{{ customer_profile_user_prompt }}</textarea>
                     </div>
         </section>
 

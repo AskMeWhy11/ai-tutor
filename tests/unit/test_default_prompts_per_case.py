@@ -50,17 +50,17 @@ def test_default_quiz_prompt_is_softer_for_sales_techniques() -> None:
 
 def test_default_mode_prompts_contain_placeholders() -> None:
     prompts = default_mode_prompts()
-    assert "{PRODUCT}" in prompts[Mode.TRAINING]
-    assert "{FACTS}" in prompts[Mode.TRAINING]
+    assert "{PRODUCT_NAME}" in prompts[Mode.TRAINING]
+    assert "{PRODUCT_DETAILS}" in prompts[Mode.TRAINING]
     # Диалоговые режимы используют образцовые диалоги.
-    assert "{DIALOGUES}" in prompts[Mode.EXAMPLE]
-    assert "{DIALOGUES}" in prompts[Mode.PRACTICE]
+    assert "{REAL_DIALOGUES}" in prompts[Mode.EXAMPLE]
+    assert "{REAL_DIALOGUES}" in prompts[Mode.PRACTICE]
 
 
 def test_default_quiz_prompt_contains_placeholders() -> None:
     for cid in ("cc_novichok", "aida"):
-        assert "{PRODUCT}" in default_quiz_prompt(cid)
-        assert "{FACTS}" in default_quiz_prompt(cid)
+        assert "{PRODUCT_NAME}" in default_quiz_prompt(cid)
+        assert "{PRODUCT_DETAILS}" in default_quiz_prompt(cid)
 
 
 def test_default_arg_is_cc_novichok() -> None:
@@ -95,5 +95,5 @@ def test_render_makes_prompts_product_specific() -> None:
     assert "Техника AIDA" in aida
     assert "Кредитная карта" in cc
     # Плейсхолдеры в результате не остаются.
-    assert "{PRODUCT}" not in aida
-    assert "{FACTS}" not in aida
+    assert "{PRODUCT_NAME}" not in aida
+    assert "{PRODUCT_DETAILS}" not in aida

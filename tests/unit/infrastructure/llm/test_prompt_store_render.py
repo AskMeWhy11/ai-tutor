@@ -45,7 +45,7 @@ def test_stored_file_has_no_rendered_content(
     store.get_mode_prompt(Mode.TRAINING)  # триггерим flush
 
     raw = json.loads((tmp_path / "prompts.json").read_text(encoding="utf-8"))
-    assert raw["version"] == 8
+    assert raw["version"] == 9
     dumped = json.dumps(raw, ensure_ascii=False)
     assert "ДИНАМИЧЕСКИЕ_ФАКТЫ" not in dumped  # контент НЕ вшит в файл
     assert "{PRODUCT_DETAILS}" in dumped

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 
 from domain.states import Mode
+from infrastructure.llm.default_prompts import embed_stage_criteria
 from infrastructure.llm.prompt_store import PromptStore
 from infrastructure.llm.variables import VARIABLES_MAP, resolve_variable
 
@@ -39,16 +40,27 @@ def _block_scalar(text: str, indent: str = "      ") -> str:
 
 
 def export_prompts_yaml(store: PromptStore, case_id: str) -> str:
-    """prompts.map выбранного кейса: актуальные (отредактированные) тексты."""
+    """prompts.map выбранного кейса: актуальные (отредактированные) тексты.
+
+    Критерии судьи стадии (learning-check) каждого режима встроены внутрь
+    промптового блока своего режима — отдельной общей секции нет.
+    """
     snap = store.snapshot(case_id)
     slug = case_slug(case_id)
+
+    def with_criteria(mode: Mode) -> str:
+        return embed_stage_criteria(
+            snap.mode_prompts.get(mode, ""),
+            snap.stage_director_prompts.get(mode, ""),
+            slug,
+        )
+
     entries: tuple[tuple[str, str], ...] = (
-        (f"{slug}-learning-transcription-prompt", snap.mode_prompts.get(Mode.TRAINING, "")),
+        (f"{slug}-learning-transcription-prompt", with_criteria(Mode.TRAINING)),
         (f"{slug}-learning-quiz-transcription-prompt", snap.quiz_prompt),
-        (f"{slug}-learning-check-prompt", snap.stage_director_prompt),
-        (f"{slug}-client-transcription-prompt", snap.mode_prompts.get(Mode.EXAMPLE, "")),
-        (f"{slug}-employee-transcription-prompt", snap.mode_prompts.get(Mode.PRACTICE, "")),
-        (f"{slug}-mentor-transcription-prompt", snap.mode_prompts.get(Mode.KNOWLEDGE, "")),
+        (f"{slug}-client-transcription-prompt", with_criteria(Mode.EXAMPLE)),
+        (f"{slug}-employee-transcription-prompt", with_criteria(Mode.PRACTICE)),
+        (f"{slug}-mentor-transcription-prompt", with_criteria(Mode.KNOWLEDGE)),
         (
             f"{slug}-create-customer-profile-system-prompt",
             snap.customer_profile_system_prompt,

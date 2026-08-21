@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from composition.app import create_app
+from domain.states import Mode
 from infrastructure.config import Settings
 from infrastructure.content import case_loader
 from infrastructure.web.security import ADMIN_COOKIE_NAME
@@ -432,7 +433,7 @@ def test_prompts_post_isolated_per_case(
     form: dict[str, str] = {
         "case_id": "xpv",
         "system_prompt": base.system_prompt,
-        "stage_director_prompt": base.stage_director_prompt,
+        "sd__training": base.stage_director_prompts[Mode.TRAINING],
         "quiz_prompt": "XPV-QUIZ",
         "mode__training": "XPV-TRAINING-PROMPT",
     }
@@ -441,7 +442,6 @@ def test_prompts_post_isolated_per_case(
     assert "case_id=xpv" in res.headers["location"]
 
     reloaded = PromptStore(settings.prompts_file)
-    from domain.states import Mode
 
     assert reloaded.get_quiz_prompt("xpv") == "XPV-QUIZ"
     assert reloaded.get_mode_prompt(Mode.TRAINING, "xpv") == "XPV-TRAINING-PROMPT"
@@ -549,6 +549,8 @@ def test_export_prompts_yaml_download(auth_client: TestClient) -> None:
     assert "yaml" in res.headers["content-type"]
     assert 'filename="prompts-cc-novichok.yaml"' in res.headers["content-disposition"]
     assert res.text.startswith("prompts:\n  map:\n")
+    assert "-learning-check-prompt:" not in res.text
+    assert "КРИТЕРИИ ЗАВЕРШЕНИЯ СТАДИИ (cc-novichok-learning-check):" in res.text
 
 
 def test_export_variables_yaml_download(auth_client: TestClient) -> None:

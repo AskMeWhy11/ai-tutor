@@ -119,6 +119,12 @@ class GigaChatQuizDirector(QuizDirector):
             logger.info("quiz_prompt пуст — fallback на StubQuizDirector")
             return await self._fallback.next_turn(ctx, user_text)
 
+        # Общий system prompt («поверх любого режима») — как в остальных
+        # режимах (см. GigaChatAvatar._compose_system_prompt).
+        global_prompt = self._prompts.snapshot().system_prompt.strip()
+        if global_prompt:
+            system_prompt = f"{global_prompt}\n\n{system_prompt}"
+
         correct_count = self._count_correct(ctx)
 
         if user_text is None or not user_text.strip():

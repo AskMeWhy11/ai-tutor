@@ -32,7 +32,7 @@ from application.ports.stage_director import (
     StageOutcome,
 )
 from domain.context import SessionContext
-from domain.states import FSMState
+from domain.states import FSMState, Mode
 from infrastructure.content.case_loader import resolve_case_id
 from infrastructure.content.registry import DEFAULT_CASE_ID
 from infrastructure.llm.prompt_store import PromptStore
@@ -48,6 +48,14 @@ __all__ = ["GigaChatStageDirector"]
 _VALID_OUTCOMES: frozenset[str] = frozenset(get_args(StageOutcome))
 
 # Допустимые outcome по состоянию.
+# FSM-состояние → режим, чей stage_director-промпт используется.
+_STATE_TO_MODE: dict[FSMState, Mode] = {
+    FSMState.TRAINING: Mode.TRAINING,
+    FSMState.EXAMPLE: Mode.EXAMPLE,
+    FSMState.PRACTICE: Mode.PRACTICE,
+    FSMState.KNOWLEDGE: Mode.KNOWLEDGE,
+}
+
 _ALLOWED_BY_STATE: dict[FSMState, frozenset[str]] = {
     FSMState.TRAINING: frozenset({"continue", "training_understood"}),
     FSMState.EXAMPLE: frozenset({"continue", "example_accepted", "example_refused_3x"}),
@@ -158,7 +166,9 @@ class GigaChatStageDirector(StageDirector):
             )
             return StageDecision(False, "continue", "теория ещё не рассказана целиком")
 
-        system_prompt = self._prompts.get_stage_director_prompt(ctx.product_id).strip()
+        system_prompt = self._prompts.get_stage_director_prompt(
+            _STATE_TO_MODE[state], ctx.product_id
+        ).strip()
         if not system_prompt:
             logger.info("stage_director_prompt пуст — fallback на stub")
             return await self._fallback.decide(state=state, ctx=ctx)

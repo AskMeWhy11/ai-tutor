@@ -30,7 +30,6 @@ pytestmark = pytest.mark.unit
 _PURPOSES = (
     "learning-transcription",
     "learning-quiz-transcription",
-    "learning-check",
     "client-transcription",
     "employee-transcription",
     "mentor-transcription",
@@ -132,12 +131,12 @@ def test_store_migrates_legacy_placeholders(tmp_path: Path) -> None:
     assert snap.mode_prompts[Mode.EXAMPLE] == "E {REAL_DIALOGUES}"
     assert snap.mode_prompts[Mode.KNOWLEDGE] == "K {PRODUCT_NAME}"
     assert snap.quiz_prompt == "Q {PRODUCT_DETAILS}"
-    assert snap.stage_director_prompt == "S {PRODUCT_NAME}"
+    assert all(v == "S {PRODUCT_NAME}" for v in snap.stage_director_prompts.values())
     assert snap.system_prompt == "Продукт {PRODUCT_NAME}"
 
     # Файл переписан в v8 — legacy-плейсхолдеров больше нет.
     raw = path.read_text(encoding="utf-8")
-    assert raw and json.loads(raw)["version"] == 8
+    assert raw and json.loads(raw)["version"] == 9
     for old in LEGACY_PLACEHOLDERS:
         assert "{" + old + "}" not in raw
 

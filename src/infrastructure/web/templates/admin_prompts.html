@@ -264,6 +264,13 @@
                     onsubmit="return confirm('Восстановить квиз-промпт по умолчанию? Текущий текст будет перезаписан.');">
                 </form>
 
+                {% for sd in stage_directors %}
+                <form method="post" id="restore-sd-{{ sd.key }}"
+                    action="/admin/prompts/{{ case_id }}/stage-director/{{ sd.key }}/restore"
+                    onsubmit="return confirm('Восстановить промпт судьи стадии по умолчанию? Текущий текст будет перезаписан.');">
+                </form>
+                {% endfor %}
+
                 <form method="post" id="restore-customer-profile"
                     action="/admin/prompts/{{ case_id }}/customer-profile/restore"
                     onsubmit="return confirm('Восстановить промпты профиля клиента по умолчанию? Текущий текст будет перезаписан.');">
@@ -361,16 +368,25 @@
                     placeholder="Можно оставить пустым">{{ system_prompt }}</textarea>
             </div>
 
+            <h3 class="admin-h3">StageDirector — судья перехода между стадиями</h3>
+            <p class="admin-hint">
+                Отдельный промпт на каждый режим: решает, когда заканчивать свою стадию.
+                Возвращает строгий JSON <code>{done, outcome, reason}</code>.
+            </p>
+            {% for sd in stage_directors %}
             <div class="admin-card">
-                <label class="admin-label" for="stage_director_prompt">StageDirector — судья перехода между
-                    стадиями</label>
-                <p class="admin-hint">
-                    Решает, когда заканчивать TRAINING / EXAMPLE / PRACTICE / KNOWLEDGE.
-                    Возвращает строгий JSON <code>{done, outcome, reason}</code>.
-                </p>
-                <textarea class="admin-textarea admin-textarea--lg" id="stage_director_prompt"
-                    name="stage_director_prompt" rows="14">{{ stage_director_prompt }}</textarea>
+                <div class="admin-row">
+                    <label class="admin-label" for="sd__{{ sd.key }}">SD · {{ sd.label }}</label>
+                    <div class="admin-row-actions">
+                        <button type="submit" class="btn btn-primary">Сохранить промпты</button>
+                        <button type="submit" form="restore-sd-{{ sd.key }}" class="btn btn-warn">
+                            Восстановить по умолчанию</button>
+                    </div>
+                </div>
+                <textarea class="admin-textarea admin-textarea--lg" id="sd__{{ sd.key }}"
+                    name="sd__{{ sd.key }}" rows="14">{{ sd.text }}</textarea>
             </div>
+            {% endfor %}
 
             <details class="admin-collapse">
                 <summary class="admin-collapse__summary">

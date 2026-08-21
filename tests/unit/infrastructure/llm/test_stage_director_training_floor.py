@@ -70,9 +70,7 @@ async def test_training_closes_once_floor_reached() -> None:
 
     decision = await director.decide(
         state=FSMState.TRAINING,
-        ctx=SessionContext(
-            product_id="xpv", dialog_history=_history(_MIN_TRAINING_AVATAR_TURNS)
-        ),
+        ctx=SessionContext(product_id="xpv", dialog_history=_history(_MIN_TRAINING_AVATAR_TURNS)),
     )
 
     assert decision.done is True

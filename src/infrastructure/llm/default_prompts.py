@@ -323,10 +323,13 @@ _QUIZ_TEMPLATE_TECHNIQUE: Final[str] = """\
 
 
 # ----------------------------------------------------------------------
-# STAGE DIRECTOR (LLM-судья перехода между стадиями)
+# STAGE DIRECTOR (LLM-судья перехода между стадиями) — по одному промпту
+# на режим: общая база + правило своего режима. Поведение идентично
+# прежнему единому промпту (модель и раньше применяла только правило
+# своей стадии — стадия приходит в user-сообщении).
 # ----------------------------------------------------------------------
 
-_STAGE_DIRECTOR_TEMPLATE: Final[str] = """\
+_SD_COMMON: Final[str] = """\
 Ты — судья учебного тренажёра. Твоя единственная задача — решить,
 пора ли завершать текущую стадию обучения, и с каким исходом.
 
@@ -339,45 +342,49 @@ _STAGE_DIRECTOR_TEMPLATE: Final[str] = """\
    задаёт вопросы или возражает — done=false, outcome=continue.
 3. Не закрывай стадию из-за одной короткой реплики, если её смысл
    неоднозначен.
-4. Для стадий, где обучаемый играет роль клиента/собеседника (EXAMPLE),
-   считай «согласием» прямые фразы принятия предложения. Просто «интересно»
-   / «хочу узнать подробнее» — это НЕ согласие.
-5. Для стадий, где обучаемый играет активную роль (PRACTICE), смотри на
-   реплики аватара-собеседника: принял ли он предложение, либо
-   окончательно отказался.
-6. Для TRAINING/KNOWLEDGE считай завершением явное подтверждение
-   понимания: «понятно», «всё ясно», «готов», «давай дальше к проверке».
+"""
 
+_SD_FORMAT: Final[str] = """\
 ФОРМАТ ОТВЕТА (СТРОГО JSON, без markdown, без комментариев):
 {"done": true|false, "outcome": "<строка>", "reason": "<кратко>"}
 
 Допустимые значения outcome зависят от стадии — они придут в user-сообщении.
 """
 
-# Вариант StageDirector для продуктов-техник продаж (SPIN/ПУСК/AIDA/ХПВ/
-# Сторителлинг). Отличие от дефолта — правило 6: TRAINING нельзя закрывать
-# по одной фразе-подтверждению, если по факту разобрана не вся фактология.
-# cc_novichok этот вариант не использует и не меняется.
-_STAGE_DIRECTOR_TEMPLATE_TECHNIQUE: Final[str] = """\
-Ты — судья учебного тренажёра. Твоя единственная задача — решить,
-пора ли завершать текущую стадию обучения, и с каким исходом.
+# Эталон полноты теории для TRAINING техник продаж — сверка реплик аватара
+# с фактологией. Только в TRAINING-судье (остальным стадиям не нужен).
+_SD_TRAINING_FACTS_TECHNIQUE: Final[str] = """\
+ФАКТОЛОГИЯ (эталон полноты TRAINING — сверяй с ней реплики аватара):
+{PRODUCT_DETAILS}
+"""
 
-Все переходы между стадиями (кроме первичного выбора режима) принимает
-ТОЛЬКО ты. Сотрудник кнопок «завершить» не видит.
-
-ОБЩИЕ ПРАВИЛА:
-1. Анализируй ВСЮ историю стадии, но особое внимание — последним репликам.
-2. Не торопись закрывать стадию: если сотрудник ещё развивает мысль,
-   задаёт вопросы или возражает — done=false, outcome=continue.
-3. Не закрывай стадию из-за одной короткой реплики, если её смысл
-   неоднозначен.
+_SD_RULE_EXAMPLE: Final[str] = """\
 4. Для стадий, где обучаемый играет роль клиента/собеседника (EXAMPLE),
    считай «согласием» прямые фразы принятия предложения. Просто «интересно»
    / «хочу узнать подробнее» — это НЕ согласие.
-5. Для стадий, где обучаемый играет активную роль (PRACTICE), смотри на
+"""
+
+_SD_RULE_PRACTICE: Final[str] = """\
+4. Для стадий, где обучаемый играет активную роль (PRACTICE), смотри на
    реплики аватара-собеседника: принял ли он предложение, либо
    окончательно отказался.
-6. Для TRAINING суди В ПЕРВУЮ ОЧЕРЕДЬ по репликам аватара, а не сотрудника.
+"""
+
+_SD_RULE_TRAINING: Final[str] = """\
+4. Для TRAINING считай завершением явное подтверждение
+   понимания: «понятно», «всё ясно», «готов», «давай дальше к проверке».
+"""
+
+_SD_RULE_KNOWLEDGE: Final[str] = """\
+4. Для KNOWLEDGE считай завершением явное подтверждение
+   понимания: «понятно», «всё ясно», «готов», «давай дальше к проверке».
+"""
+
+# Вариант TRAINING для продуктов-техник продаж (SPIN/ПУСК/AIDA/ХПВ/
+# Сторителлинг): нельзя закрывать теорию по одной фразе-подтверждению,
+# пока аватар не рассказал всю фактологию. cc_novichok не затрагивает.
+_SD_RULE_TRAINING_TECHNIQUE: Final[str] = """\
+4. Для TRAINING суди В ПЕРВУЮ ОЧЕРЕДЬ по репликам аватара, а не сотрудника.
    Прежде чем закрыть стадию (outcome=training_understood), проверь по
    репликам аватара, что ВСЁ перечисленное ниже выполнено:
    а) аватар озвучил ВСЕ пункты блока ФАКТОЛОГИЯ ниже (сверь реплики
@@ -399,17 +406,30 @@ _STAGE_DIRECTOR_TEMPLATE_TECHNIQUE: Final[str] = """\
    «начнём проверку», «готов к тесту» и т.п.) — ОБЯЗАТЕЛЬНО закрывай
    стадию: done=true, outcome=training_understood. Проверку ведёт следующий
    этап, поэтому не давай аватару тестировать сотрудника в TRAINING.
-7. Для KNOWLEDGE считай завершением явное подтверждение понимания:
-   «понятно», «всё ясно», «готов», «давай дальше к проверке».
-
-ФАКТОЛОГИЯ (эталон полноты TRAINING — сверяй с ней реплики аватара):
-{PRODUCT_DETAILS}
-
-ФОРМАТ ОТВЕТА (СТРОГО JSON, без markdown, без комментариев):
-{"done": true|false, "outcome": "<строка>", "reason": "<кратко>"}
-
-Допустимые значения outcome зависят от стадии — они придут в user-сообщении.
 """
+
+_SD_RULE_KNOWLEDGE_TECHNIQUE: Final[str] = """\
+4. Для KNOWLEDGE считай завершением явное подтверждение понимания:
+   «понятно», «всё ясно», «готов», «давай дальше к проверке».
+"""
+
+
+def default_stage_director_prompts(case_id: str = DEFAULT_CASE_ID) -> dict[Mode, str]:
+    """Промпт судьи стадии для каждого режима: база + правило режима."""
+    is_technique = case_id != DEFAULT_CASE_ID
+    training_rule = _SD_RULE_TRAINING_TECHNIQUE if is_technique else _SD_RULE_TRAINING
+    knowledge_rule = _SD_RULE_KNOWLEDGE_TECHNIQUE if is_technique else _SD_RULE_KNOWLEDGE
+    training_extra = _SD_TRAINING_FACTS_TECHNIQUE if is_technique else ""
+
+    def build(rule: str, extra: str = "") -> str:
+        return f"{_SD_COMMON}{rule}\n{extra}{_SD_FORMAT}"
+
+    return {
+        Mode.TRAINING: build(training_rule, training_extra),
+        Mode.EXAMPLE: build(_SD_RULE_EXAMPLE),
+        Mode.PRACTICE: build(_SD_RULE_PRACTICE),
+        Mode.KNOWLEDGE: build(knowledge_rule),
+    }
 
 
 # ----------------------------------------------------------------------
@@ -431,12 +451,6 @@ def default_mode_prompts(case_id: str = DEFAULT_CASE_ID) -> dict[Mode, str]:
 
 def default_quiz_prompt(case_id: str = DEFAULT_CASE_ID) -> str:
     return _QUIZ_TEMPLATE_TECHNIQUE if case_id != DEFAULT_CASE_ID else _QUIZ_TEMPLATE
-
-
-def default_stage_director_prompt(case_id: str = DEFAULT_CASE_ID) -> str:
-    if case_id != DEFAULT_CASE_ID:
-        return _STAGE_DIRECTOR_TEMPLATE_TECHNIQUE
-    return _STAGE_DIRECTOR_TEMPLATE
 
 
 # ----------------------------------------------------------------------
@@ -471,6 +485,21 @@ _CUSTOMER_PROFILE_USER_TEMPLATE: Final[str] = """\
 """
 
 
+def embed_stage_criteria(mode_prompt: str, stage_prompt: str, slug: str) -> str:
+    """Встроить критерии судьи стадии внутрь промптового блока режима.
+
+    Используется в prompts_map/YAML-экспорте: у эталона learning-check —
+    часть контура режима, отдельной общей секции нет.
+    """
+    if not stage_prompt.strip():
+        return mode_prompt
+    return (
+        f"{mode_prompt.rstrip()}\n\n"
+        f"КРИТЕРИИ ЗАВЕРШЕНИЯ СТАДИИ ({slug}-learning-check):\n"
+        f"{stage_prompt.rstrip()}\n"
+    )
+
+
 def _case_slug(case_id: str) -> str:
     return case_id.replace("_", "-")
 
@@ -482,7 +511,8 @@ def prompts_map() -> dict[str, str]:
     * TRAINING  → learning-transcription   (Обучение, ИИ-ментор)
     * QUIZ      → learning-quiz-transcription (часть Обучения; расширение
       грамматики эталона — отдельного ключа у квиза там нет)
-    * stage director → learning-check      (статус-машина этапа)
+    * stage director → критерии завершения стадии встроены внутрь блока
+      своего режима (секция «...-learning-check» в тексте промпта)
     * EXAMPLE   → client-transcription     (Пример, ИИ-сотрудник)
     * PRACTICE  → employee-transcription   (Практика, ИИ-клиент)
     * KNOWLEDGE → mentor-transcription     (Знания, ИИ-тренер)
@@ -493,12 +523,20 @@ def prompts_map() -> dict[str, str]:
     for cid in editable_case_ids():
         slug = _case_slug(cid)
         modes = default_mode_prompts(cid)
-        out[f"{slug}-learning-transcription-prompt"] = modes[Mode.TRAINING]
+        sd = default_stage_director_prompts(cid)
+        out[f"{slug}-learning-transcription-prompt"] = embed_stage_criteria(
+            modes[Mode.TRAINING], sd[Mode.TRAINING], slug
+        )
         out[f"{slug}-learning-quiz-transcription-prompt"] = default_quiz_prompt(cid)
-        out[f"{slug}-learning-check-prompt"] = default_stage_director_prompt(cid)
-        out[f"{slug}-client-transcription-prompt"] = modes[Mode.EXAMPLE]
-        out[f"{slug}-employee-transcription-prompt"] = modes[Mode.PRACTICE]
-        out[f"{slug}-mentor-transcription-prompt"] = modes[Mode.KNOWLEDGE]
+        out[f"{slug}-client-transcription-prompt"] = embed_stage_criteria(
+            modes[Mode.EXAMPLE], sd[Mode.EXAMPLE], slug
+        )
+        out[f"{slug}-employee-transcription-prompt"] = embed_stage_criteria(
+            modes[Mode.PRACTICE], sd[Mode.PRACTICE], slug
+        )
+        out[f"{slug}-mentor-transcription-prompt"] = embed_stage_criteria(
+            modes[Mode.KNOWLEDGE], sd[Mode.KNOWLEDGE], slug
+        )
         out[f"{slug}-create-customer-profile-system-prompt"] = (
             default_customer_profile_system_prompt(cid)
         )

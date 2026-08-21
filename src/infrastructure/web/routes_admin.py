@@ -311,7 +311,14 @@ def build_admin_router() -> list[APIRouter]:
                 "items": _build_items(snap),
                 "modes": _build_modes(snap),
                 "quiz_prompt": snap.quiz_prompt,
-                "stage_director_prompt": snap.stage_director_prompt,
+                "stage_directors": [
+                    {
+                        "key": m.value,
+                        "label": _MODE_LABELS[m],
+                        "text": snap.stage_director_prompts.get(m, ""),
+                    }
+                    for m in Mode
+                ],
                 "customer_profile_system_prompt": snap.customer_profile_system_prompt,
                 "customer_profile_user_prompt": snap.customer_profile_user_prompt,
                 "saved": bool(saved),
@@ -330,7 +337,7 @@ def build_admin_router() -> list[APIRouter]:
         cid = _resolve_case_id(str(form.get("case_id", "")))
         system_prompt = str(form.get("system_prompt", ""))
         quiz_prompt = str(form.get("quiz_prompt", ""))
-        stage_director_prompt = str(form.get("stage_director_prompt", ""))
+        stage_director_prompts: dict[Mode, str] = {}
         profile_system = str(form.get("customer_profile_system_prompt", ""))
         profile_user = str(form.get("customer_profile_user_prompt", ""))
 
@@ -350,13 +357,18 @@ def build_admin_router() -> list[APIRouter]:
                 if mode is None:
                     continue
                 mode_prompts[mode] = str(raw_value)
+            elif raw_name.startswith("sd__"):
+                mode = mode_names.get(raw_name[len("sd__") :])
+                if mode is None:
+                    continue
+                stage_director_prompts[mode] = str(raw_value)
 
         store.replace_all(
             system_prompt=system_prompt,
             templates=templates,
             mode_prompts=mode_prompts,
             quiz_prompt=quiz_prompt,
-            stage_director_prompt=stage_director_prompt,
+            stage_director_prompts=stage_director_prompts or None,
             customer_profile_system_prompt=profile_system or None,
             customer_profile_user_prompt=profile_user or None,
             case_id=cid,
@@ -484,6 +496,22 @@ def build_admin_router() -> list[APIRouter]:
         logger.info("Quiz prompt restored: %s", cid)
         return RedirectResponse(
             url=f"/admin/prompts?case_id={cid}&case_saved=quiz-restored",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @router.post("/prompts/{case_id}/stage-director/{mode_key}/restore")
+    def restore_stage_director(case_id: str, mode_key: str, request: Request) -> RedirectResponse:
+        cid = _resolve_case_id(case_id)
+        try:
+            mode = Mode(mode_key)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Unknown mode"
+            ) from exc
+        _store(request).restore_stage_director_prompt(mode, cid)
+        logger.info("Stage director prompt restored: %s/%s", cid, mode_key)
+        return RedirectResponse(
+            url=f"/admin/prompts?case_id={cid}&case_saved=stage-director-{mode_key}-restored",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

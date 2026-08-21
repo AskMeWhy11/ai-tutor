@@ -5,7 +5,8 @@
   к дефолтным шаблонам с плейсхолдерами (кастомные тексты теряются осознанно);
 * v<7 — глобальный stage_director_prompt переезжает в bundle DEFAULT_CASE_ID;
 * v8 — эталонный нейминг плейсхолдеров, per-case структура;
-* v9 — stage_director разделён по режимам (общий текст копируется в 4 поля).
+* v9 — stage_director разделён по режимам (общий текст копируется в 4 поля);
+* v10 — QUIZ упразднён: quiz_prompt мержится секцией LEARNING_CHECK в TRAINING.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from domain.states import Mode
 from infrastructure.content.registry import DEFAULT_CASE_ID
 from infrastructure.llm.prompt_store import PromptStore
 
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 10
 
 
 def test_default_includes_stage_director(tmp_path: Path):
@@ -38,7 +39,6 @@ def test_replace_all_persists_stage_director(tmp_path: Path):
         system_prompt=snap.system_prompt,
         templates=snap.templates,
         mode_prompts=snap.mode_prompts,
-        quiz_prompt=snap.quiz_prompt,
         stage_director_prompts={Mode.EXAMPLE: "custom sd prompt"},
     )
 
@@ -72,9 +72,11 @@ def test_legacy_v3_upgraded_with_defaults(tmp_path: Path):
     store = PromptStore(p)
     sd = store.get_stage_director_prompt(Mode.TRAINING)
     assert sd.strip() != ""  # подтянулся дефолт
-    # v<6 → legacy quiz осознанно затирается свежим дефолтом с плейсхолдерами.
-    assert store.get_quiz_prompt() != "old quiz"
-    assert store.get_quiz_prompt().strip() != ""
+    # v<6 → legacy quiz осознанно затирается свежим дефолтом с плейсхолдерами;
+    # квиз теперь секция LEARNING_CHECK внутри TRAINING-промпта.
+    training = store.get_mode_prompt(Mode.TRAINING)
+    assert "old quiz" not in training
+    assert "ЭТАП LEARNING_CHECK" in training
     # Файл переписан в актуальную схему.
     assert json.loads(p.read_text(encoding="utf-8"))["version"] == _SCHEMA_VERSION
 
@@ -90,7 +92,7 @@ def test_legacy_v4_mode_quiz_reset_to_defaults(tmp_path: Path):
                 "templates": {},
                 "stage_director_prompt": "sd",
                 "mode_prompts": {Mode.TRAINING.value: "LEGACY TRAINING"},
-                "quiz_prompt": "legacy quiz",
+                "quiz_prompt": "legacy quiz",  # мержится в TRAINING при миграции
             }
         ),
         encoding="utf-8",
@@ -106,7 +108,7 @@ def test_legacy_v4_mode_quiz_reset_to_defaults(tmp_path: Path):
     assert store.snapshot("xpv").stage_director_prompts[Mode.TRAINING] != "sd"
 
 
-def test_v9_cases_roundtrip(tmp_path: Path):
+def test_v10_cases_roundtrip(tmp_path: Path):
     p = tmp_path / "prompts.json"
     store = PromptStore(p)
     snap = store.snapshot("xpv")
@@ -114,15 +116,12 @@ def test_v9_cases_roundtrip(tmp_path: Path):
         system_prompt=snap.system_prompt,
         templates=snap.templates,
         mode_prompts={**snap.mode_prompts, Mode.PRACTICE: "XPV PRACTICE"},
-        quiz_prompt="xpv quiz",
         stage_director_prompts=snap.stage_director_prompts,
         case_id="xpv",
     )
     raw = json.loads(p.read_text(encoding="utf-8"))
     assert raw["version"] == _SCHEMA_VERSION
-    assert raw["cases"]["xpv"]["quiz_prompt"] == "xpv quiz"
+    assert "quiz_prompt" not in raw["cases"]["xpv"]
 
     store2 = PromptStore(p)
     assert store2.get_mode_prompt(Mode.PRACTICE, "xpv") == "XPV PRACTICE"
-    # cc_novichok не затронут.
-    assert store2.get_quiz_prompt("cc_novichok") != "xpv quiz"

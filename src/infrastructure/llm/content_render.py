@@ -21,7 +21,9 @@ __all__ = [
     "LEGACY_PLACEHOLDERS",
     "PLACEHOLDERS",
     "PROFILE_PLACEHOLDERS",
+    "STEP_PLACEHOLDERS",
     "apply_profile",
+    "apply_step",
     "render_prompt",
     "strip_markdown_emphasis",
 ]
@@ -52,6 +54,13 @@ PROFILE_DEFAULTS: Final[dict[str, str]] = {
 _PROFILE_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"\{(" + "|".join(PROFILE_PLACEHOLDERS) + r")\}"
 )
+
+# Контекстные плейсхолдеры TRAINING-flow (эталон: STEP/STEP_STATUS).
+# Значение зависит от текущего FSM-состояния сессии, а не от контента кейса,
+# поэтому подставляется отдельным проходом (apply_step) в момент вызова LLM.
+STEP_PLACEHOLDERS: Final[tuple[str, ...]] = ("STEP", "STEP_STATUS")
+
+_STEP_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{(" + "|".join(STEP_PLACEHOLDERS) + r")\}")
 
 # Старый нейминг → эталонный (для текстов, сохранённых до миграции).
 LEGACY_PLACEHOLDERS: Final[dict[str, str]] = {
@@ -112,3 +121,11 @@ def apply_profile(text: str, profile: dict[str, str] | None) -> str:
         return text
     values = {**PROFILE_DEFAULTS, **(profile or {})}
     return _PROFILE_PATTERN.sub(lambda m: values.get(m.group(1), m.group(0)), text)
+
+
+def apply_step(text: str, step: str, step_status: str = "") -> str:
+    """Подставить {STEP}/{STEP_STATUS} текущего этапа TRAINING-flow."""
+    if not text or "{" not in text:
+        return text
+    values = {"STEP": step, "STEP_STATUS": step_status}
+    return _STEP_PATTERN.sub(lambda m: values.get(m.group(1), m.group(0)), text)

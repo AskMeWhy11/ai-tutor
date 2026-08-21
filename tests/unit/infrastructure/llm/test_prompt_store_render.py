@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -14,6 +15,7 @@ def _patch_content(monkeypatch: pytest.MonkeyPatch) -> None:
     class _Case:
         facts = "ДИНАМИЧЕСКИЕ_ФАКТЫ"
         dialogues = "ДИНАМИЧЕСКИЕ_ДИАЛОГИ"
+        checklist: ClassVar[dict[str, tuple[object, ...]]] = {}
 
     monkeypatch.setattr(vars_mod, "load_case", lambda cid: _Case())
     monkeypatch.setattr(mod, "resolve_case_id", lambda cid: cid or "cc_novichok")
@@ -45,7 +47,7 @@ def test_stored_file_has_no_rendered_content(
     store.get_mode_prompt(Mode.TRAINING)  # триггерим flush
 
     raw = json.loads((tmp_path / "prompts.json").read_text(encoding="utf-8"))
-    assert raw["version"] == 9
+    assert raw["version"] == 10
     dumped = json.dumps(raw, ensure_ascii=False)
     assert "ДИНАМИЧЕСКИЕ_ФАКТЫ" not in dumped  # контент НЕ вшит в файл
     assert "{PRODUCT_DETAILS}" in dumped
@@ -65,7 +67,6 @@ def test_v5_migration_resets_case_prompts(tmp_path: Path, monkeypatch: pytest.Mo
                 "cases": {
                     "cc_novichok": {
                         "mode_prompts": {"training": "СТАРЫЙ ВШИТЫЙ ТЕКСТ"},
-                        "quiz_prompt": "СТАРЫЙ КВИЗ",
                     }
                 },
             },

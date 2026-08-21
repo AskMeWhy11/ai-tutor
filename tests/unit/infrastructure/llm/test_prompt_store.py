@@ -120,7 +120,6 @@ def test_per_case_isolation(store_path: Path) -> None:
         system_prompt=base.system_prompt,
         templates=base.templates,
         mode_prompts={**base.mode_prompts, Mode.TRAINING: "XPV-T"},
-        quiz_prompt="xpv-q",
         stage_director_prompts=base.stage_director_prompts,
         case_id="xpv",
     )

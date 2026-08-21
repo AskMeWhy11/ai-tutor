@@ -260,9 +260,6 @@
                     onsubmit="return confirm('Восстановить промпт «{{ mode.key }}» по умолчанию? Текущий текст будет перезаписан.');">
                 </form>
                 {% endfor %}
-                <form method="post" id="restore-quiz" action="/admin/prompts/{{ case_id }}/quiz/restore"
-                    onsubmit="return confirm('Восстановить квиз-промпт по умолчанию? Текущий текст будет перезаписан.');">
-                </form>
 
                 {% for sd in stage_directors %}
                 <form method="post" id="restore-sd-{{ sd.key }}"
@@ -285,6 +282,11 @@
                         <code>{PRODUCT_NAME}</code> — название продукта/техники,
                         <code>{PRODUCT_DETAILS}</code> — фактология кейса,
                         <code>{REAL_DIALOGUES}</code> — образцовые диалоги.
+                        TRAINING-промпт трёхэтапный: WELCOME → LEARNING → LEARNING_CHECK
+                        (проверочный квиз — секция «ЭТАП LEARNING_CHECK»); текущий этап
+                        подставляется в <code>{STEP}</code>.
+                        Также доступны: <code>{LEARNING_CHECK_LIST}</code>,
+                        <code>{COUNT_OF_QUESTIONS}</code>.
                         Остальные фигурные скобки (в т.ч. JSON) не трогаются.
                     </p>
                     {% for mode in modes %}
@@ -302,24 +304,6 @@
                     </div>
                     {% endfor %}
 
-                    <h3 class="admin-h3">Проверочный квиз (TRAINING_QUIZ)</h3>
-                    <p class="admin-hint">
-                        Управляет генерацией вопросов и оценкой ответов после теории.
-                        Должен возвращать строгий JSON:
-                        <code>{verdict, explanation, next_question, done}</code>.
-                        Плейсхолдеры: <code>{PRODUCT_NAME}</code>, <code>{PRODUCT_DETAILS}</code>.
-                    </p>
-                    <div class="admin-card">
-                        <div class="admin-row">
-                            <label class="admin-label" for="quiz_prompt">QUIZ — генерация и проверка вопросов</label>
-                            <div class="admin-row-actions">
-                                <button type="submit" class="btn btn-primary">Сохранить промпты</button>
-                                <button type="submit" form="restore-quiz" class="btn btn-warn">
-                                    Восстановить по умолчанию</button>
-                            </div>
-                        </div>
-                        <textarea id="quiz_prompt" name="quiz_prompt" rows="20">{{ quiz_prompt }}</textarea>
-                    </div>
 
                     <h3 class="admin-h3">Профиль клиента (create-customer-profile)</h3>
                     <p class="admin-hint">

@@ -36,6 +36,7 @@ from domain.states import FSMState, Mode
 from infrastructure.content.case_loader import resolve_case_id
 from infrastructure.content.registry import DEFAULT_CASE_ID
 from infrastructure.llm.prompt_store import PromptStore
+from infrastructure.llm.training_steps import training_step
 
 if TYPE_CHECKING:
     from gigachat import GigaChat
@@ -51,6 +52,8 @@ _VALID_OUTCOMES: frozenset[str] = frozenset(get_args(StageOutcome))
 # FSM-состояние → режим, чей stage_director-промпт используется.
 _STATE_TO_MODE: dict[FSMState, Mode] = {
     FSMState.TRAINING: Mode.TRAINING,
+    # Этап LEARNING_CHECK — тот же TRAINING-судья (learning-check контур).
+    FSMState.TRAINING_QUIZ: Mode.TRAINING,
     FSMState.EXAMPLE: Mode.EXAMPLE,
     FSMState.PRACTICE: Mode.PRACTICE,
     FSMState.KNOWLEDGE: Mode.KNOWLEDGE,
@@ -58,6 +61,13 @@ _STATE_TO_MODE: dict[FSMState, Mode] = {
 
 _ALLOWED_BY_STATE: dict[FSMState, frozenset[str]] = {
     FSMState.TRAINING: frozenset({"continue", "training_understood"}),
+    FSMState.TRAINING_QUIZ: frozenset(
+        {
+            "continue",  # STEP_STATUS=LEARNING_CHECK_STARTED
+            "learning_check_finished_success",
+            "learning_check_finished_failed",
+        }
+    ),
     FSMState.EXAMPLE: frozenset({"continue", "example_accepted", "example_refused_3x"}),
     FSMState.PRACTICE: frozenset({"continue", "practice_accepted", "practice_refused"}),
     FSMState.KNOWLEDGE: frozenset({"continue", "knowledge_understood"}),
@@ -75,6 +85,7 @@ _MIN_TRAINING_AVATAR_TURNS = 5
 
 _USER_TEMPLATE = """\
 Текущее состояние FSM: {state}
+Текущий этап TRAINING-flow (STEP): {step}
 Допустимые значения outcome: {allowed}
 
 Счётчики:
@@ -175,6 +186,7 @@ class GigaChatStageDirector(StageDirector):
 
         user_msg = _USER_TEMPLATE.format(
             state=state.value,
+            step=training_step(state, ctx),
             allowed=", ".join(sorted(allowed)),
             turns=_count_user(ctx),
             refuse_count=_count_refuse(ctx),

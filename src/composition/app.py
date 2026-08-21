@@ -18,7 +18,6 @@ from application.ports.answer_checker import AnswerChecker
 from application.ports.avatar import AvatarClient
 from application.ports.customer_profile import CustomerProfileGenerator
 from application.ports.practice_evaluator import PracticeEvaluator
-from application.ports.quiz_director import QuizDirector
 from application.ports.session_store import SessionStore
 from application.ports.stage_director import StageDirector
 from application.ports.stt_client import STTClient
@@ -30,7 +29,6 @@ from infrastructure.llm.stub_avatar import StubAvatar
 from infrastructure.llm.stub_checker import StubAnswerChecker
 from infrastructure.llm.stub_customer_profile import StubCustomerProfileGenerator
 from infrastructure.llm.stub_practice_evaluator import StubPracticeEvaluator
-from infrastructure.llm.stub_quiz_director import StubQuizDirector
 from infrastructure.llm.stub_stage_director import StubStageDirector
 from infrastructure.persistence.in_memory_session_store import InMemorySessionStore
 from infrastructure.stt.null_stt import NullSTT
@@ -63,7 +61,6 @@ def create_app(
     avatar: AvatarClient | None = None,
     answer_checker: AnswerChecker | None = None,
     practice_evaluator: PracticeEvaluator | None = None,
-    quiz_director: QuizDirector | None = None,
     stage_director: StageDirector | None = None,
     customer_profile_generator: CustomerProfileGenerator | None = None,
 ) -> FastAPI:
@@ -102,7 +99,6 @@ def create_app(
 
     checker = answer_checker or _build_answer_checker(settings, gigachat_client)
     evaluator = practice_evaluator or _build_practice_evaluator(settings, gigachat_client)
-    director = quiz_director or _build_quiz_director(settings, prompt_store, gigachat_client)
     stage = stage_director or _build_stage_director(settings, prompt_store, gigachat_client)
     profile_generator = customer_profile_generator or _build_customer_profile_generator(
         settings, prompt_store, gigachat_client
@@ -116,7 +112,6 @@ def create_app(
         audio_cache=audio_cache,
         answer_checker=checker,
         practice_evaluator=evaluator,
-        quiz_director=director,
         stage_director=stage,
         customer_profile_generator=profile_generator,
         customer_profile_store=prompt_store,
@@ -222,29 +217,6 @@ def _build_practice_evaluator(settings: Settings, client: GigaChat | None) -> Pr
         logger.exception("GigaChatPracticeEvaluator import failed — fallback на stub")
         return stub
     return GigaChatPracticeEvaluator(client=client, fallback=stub, model=settings.gigachat_model)
-
-
-def _build_quiz_director(
-    settings: Settings,
-    prompt_store: PromptStore,
-    client: GigaChat | None,
-) -> QuizDirector:
-    stub = StubQuizDirector()
-    if client is None:
-        logger.info("GIGACHAT не настроен — используется StubQuizDirector")
-        return stub
-    try:
-        from infrastructure.llm.gigachat_quiz_director import GigaChatQuizDirector
-    except Exception:
-        logger.exception("GigaChatQuizDirector import failed — fallback на stub")
-        return stub
-    logger.info("GigaChatQuizDirector активирован")
-    return GigaChatQuizDirector(
-        client=client,
-        prompt_store=prompt_store,
-        fallback=stub,
-        model=settings.gigachat_model,
-    )
 
 
 def _build_stage_director(

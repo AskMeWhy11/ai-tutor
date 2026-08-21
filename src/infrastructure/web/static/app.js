@@ -396,16 +396,9 @@ function renderQuickActions() {
     els.quick.innerHTML = "";
     const cmds = state.availableCommands.filter((c) => c.type !== "user_message");
     for (const cmd of cmds) {
-        if (cmd.type === "submit_quiz_answer") {
-            if (!state.debug) continue;
-            els.quick.appendChild(makeBtn("[debug] Ответил верно", () =>
-                sendCommand({ type: "submit_quiz_answer", correct: true }),
-            ));
-            els.quick.appendChild(makeBtn("[debug] Ошибся", () =>
-                sendCommand({ type: "submit_quiz_answer", correct: false }),
-            ));
-            continue;
-        }
+        // LEARNING_CHECK — обычный TRAINING-диалог: квиз-кнопок больше нет,
+        // завершение решает бэкенд (learning-check анализатор).
+        if (cmd.type === "submit_quiz_answer") continue;
         if (cmd.type === "practice_evaluated") {
             if (!state.debug) continue;
             els.quick.appendChild(makeBtn("[debug] Зоны: все ок", () =>

@@ -434,7 +434,6 @@ def test_prompts_post_isolated_per_case(
         "case_id": "xpv",
         "system_prompt": base.system_prompt,
         "sd__training": base.stage_director_prompts[Mode.TRAINING],
-        "quiz_prompt": "XPV-QUIZ",
         "mode__training": "XPV-TRAINING-PROMPT",
     }
     res = auth_client.post("/admin/prompts", data=form, follow_redirects=False)
@@ -443,10 +442,9 @@ def test_prompts_post_isolated_per_case(
 
     reloaded = PromptStore(settings.prompts_file)
 
-    assert reloaded.get_quiz_prompt("xpv") == "XPV-QUIZ"
     assert reloaded.get_mode_prompt(Mode.TRAINING, "xpv") == "XPV-TRAINING-PROMPT"
     # cc_novichok не затронут.
-    assert reloaded.get_quiz_prompt("cc_novichok") != "XPV-QUIZ"
+    assert reloaded.get_mode_prompt(Mode.TRAINING, "cc_novichok") != "XPV-TRAINING-PROMPT"
 
 
 def test_case_files_routes_work_for_new_case(

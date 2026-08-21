@@ -225,12 +225,13 @@ class FSMService:
             raise ValueError(f"TheoryDone допустима только в TRAINING, получено {state}")
 
         new_state = get_next_state(state, FSMEvent.THEORY_DONE)
+        # Этап LEARNING_CHECK — продолжение единого TRAINING-диалога:
+        # dialog_history НЕ сбрасывается (сбрасываются только счётчики квиза).
         new_ctx = dataclasses.replace(
             ctx,
             quiz_question_index=0,
             last_answer_correct=None,
             quiz_target_questions=TRAINING_QUIZ_QUESTIONS,
-            dialog_history=(),
             quiz_history=(),
         )
         return FSMResult(new_state, new_ctx, (PersistSession(),))
@@ -403,11 +404,8 @@ class FSMService:
         if not text:
             return FSMResult(state, ctx, ())
 
-        # В TRAINING_QUIZ реплику в историю НЕ пишем: квиз изолирован,
-        # оценкой занимается SessionRunner через QuizDirector / AnswerChecker.
-        if state is FSMState.TRAINING_QUIZ:
-            return FSMResult(state, ctx, ())
-
+        # Этап LEARNING_CHECK (TRAINING_QUIZ) — продолжение единого
+        # TRAINING-диалога: реплика пишется в общую историю.
         new_history = (*ctx.dialog_history, ChatMessage(role="user", text=text))
         new_ctx = dataclasses.replace(ctx, dialog_history=new_history)
         return FSMResult(state, new_ctx, (PersistSession(),))

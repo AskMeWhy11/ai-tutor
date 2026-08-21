@@ -10,7 +10,6 @@ from domain.context import SessionContext
 from domain.types import ChatMessage, Zone
 from infrastructure.content.case_loader import resolve_case_id
 from infrastructure.content.registry import DEFAULT_CASE_ID
-from infrastructure.llm.gigachat_quiz_director import _build_factology
 
 if TYPE_CHECKING:
     from gigachat import GigaChat
@@ -28,14 +27,6 @@ def test_resolve_case_id_unknown_falls_back_to_default() -> None:
 def test_resolve_case_id_known_kept() -> None:
     # xpv есть в реестре (available=False, но is_known_case=True)
     assert resolve_case_id("xpv") == "xpv"
-
-
-def test_build_factology_returns_nonempty_for_default() -> None:
-    assert _build_factology(None).strip()
-
-
-def test_build_factology_unknown_case_falls_back_to_default() -> None:
-    assert _build_factology("does-not-exist") == _build_factology(None)
 
 
 class _SpyEvaluator:

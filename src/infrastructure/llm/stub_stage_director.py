@@ -48,6 +48,14 @@ class StubStageDirector(StageDirector):
         last = _last_user(ctx)
         turns = _count_user(ctx)
 
+        if state is FSMState.TRAINING_QUIZ:
+            # Этап LEARNING_CHECK: 3+ ответов сотрудника → успех (эвристика).
+            if turns >= 3:
+                return StageDecision(
+                    True, "learning_check_finished_success", "stub: enough answers"
+                )
+            return StageDecision(False, "continue", "")
+
         if state is FSMState.TRAINING:
             if turns >= 4 or _has_any(last, _UNDERSTOOD_TOKENS):
                 return StageDecision(True, "training_understood", "stub: turns/understood")

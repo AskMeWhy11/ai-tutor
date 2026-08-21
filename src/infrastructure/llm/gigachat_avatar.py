@@ -20,8 +20,10 @@ from typing import TYPE_CHECKING, Any
 
 from domain.context import SessionContext
 from domain.states import FSMState, Mode
+from infrastructure.llm.content_render import apply_step
 from infrastructure.llm.prompt_store import PromptStore
 from infrastructure.llm.stub_avatar import StubAvatar
+from infrastructure.llm.training_steps import training_step
 
 if TYPE_CHECKING:
     from gigachat import GigaChat
@@ -34,6 +36,9 @@ __all__ = ["GigaChatAvatar"]
 # Маппинг FSM-состояния → режим, чей system_prompt используется.
 _STATE_TO_MODE: dict[FSMState, Mode] = {
     FSMState.TRAINING: Mode.TRAINING,
+    # Этап LEARNING_CHECK: технические узлы квиза ведёт тот же TRAINING-промпт.
+    FSMState.TRAINING_QUIZ: Mode.TRAINING,
+    FSMState.TRAINING_EXPLAIN: Mode.TRAINING,
     FSMState.EXAMPLE: Mode.EXAMPLE,
     FSMState.PRACTICE: Mode.PRACTICE,
     FSMState.KNOWLEDGE: Mode.KNOWLEDGE,
@@ -119,6 +124,8 @@ class GigaChatAvatar:
         if not mode_prompt:
             logger.info("mode_prompt пуст для %s — fallback на stub", mode)
             return await self._fallback.next_message(state, ctx)
+        if mode is Mode.TRAINING:
+            mode_prompt = apply_step(mode_prompt, training_step(state, ctx))
 
         system_prompt = self._compose_system_prompt(mode_prompt, ctx)
         history = ctx.dialog_history

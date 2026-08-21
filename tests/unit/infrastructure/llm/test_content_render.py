@@ -16,6 +16,7 @@ def _patch_case(
         def __init__(self) -> None:
             self.facts = facts
             self.dialogues = dialogues
+            self.checklist: dict[str, tuple[object, ...]] = {}
 
     monkeypatch.setattr(vars_mod, "load_case", lambda cid: _Case())
     monkeypatch.setattr(vars_mod, "case_product_name", lambda cid: product)

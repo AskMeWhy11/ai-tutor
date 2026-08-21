@@ -310,7 +310,6 @@ def build_admin_router() -> list[APIRouter]:
                 "system_prompt": snap.system_prompt,
                 "items": _build_items(snap),
                 "modes": _build_modes(snap),
-                "quiz_prompt": snap.quiz_prompt,
                 "stage_directors": [
                     {
                         "key": m.value,
@@ -336,7 +335,6 @@ def build_admin_router() -> list[APIRouter]:
 
         cid = _resolve_case_id(str(form.get("case_id", "")))
         system_prompt = str(form.get("system_prompt", ""))
-        quiz_prompt = str(form.get("quiz_prompt", ""))
         stage_director_prompts: dict[Mode, str] = {}
         profile_system = str(form.get("customer_profile_system_prompt", ""))
         profile_user = str(form.get("customer_profile_user_prompt", ""))
@@ -367,7 +365,6 @@ def build_admin_router() -> list[APIRouter]:
             system_prompt=system_prompt,
             templates=templates,
             mode_prompts=mode_prompts,
-            quiz_prompt=quiz_prompt,
             stage_director_prompts=stage_director_prompts or None,
             customer_profile_system_prompt=profile_system or None,
             customer_profile_user_prompt=profile_user or None,
@@ -486,16 +483,6 @@ def build_admin_router() -> list[APIRouter]:
         logger.info("Mode prompt restored: %s/%s", cid, mode_key)
         return RedirectResponse(
             url=f"/admin/prompts?case_id={cid}&case_saved=mode-{mode_key}-restored",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-
-    @router.post("/prompts/{case_id}/quiz/restore")
-    def restore_quiz_prompt(case_id: str, request: Request) -> RedirectResponse:
-        cid = _resolve_case_id(case_id)
-        _store(request).restore_quiz_prompt(cid)
-        logger.info("Quiz prompt restored: %s", cid)
-        return RedirectResponse(
-            url=f"/admin/prompts?case_id={cid}&case_saved=quiz-restored",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

@@ -9,7 +9,6 @@ import pytest
 from application.commands import SelectMode, StartSession, StartTraining, UserMessage
 from application.effects import EmitHint, EmitText, PersistSession, PlayAudio
 from application.fsm_service import FSMService
-from application.ports.quiz_director import QuizTurn
 from application.session_runner import SessionRunner
 from domain.context import SessionContext
 from domain.states import FSMState
@@ -37,13 +36,6 @@ class _StateAwareAvatar:
 
     async def next_hint(self, state: FSMState, ctx: SessionContext) -> str | None:
         return None
-
-
-class _FakeQuizDirector:
-    """Всегда засчитывает ответ и закрывает квиз (done=True)."""
-
-    async def next_turn(self, ctx: SessionContext, user_text: str | None) -> QuizTurn:
-        return QuizTurn(verdict="correct", explanation="", next_question="", done=True)
 
 
 class _FakeTTS:
@@ -158,9 +150,17 @@ async def test_dispatch_without_avatar_yields_no_emit_text() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quiz_close_emits_training_done_reply_once() -> None:
-    # Регресс: при закрытии квиза реплика TRAINING_DONE уходила дважды
-    # (отдельный _build_avatar_effects + первый шаг _advance_chain).
+async def test_learning_check_close_emits_training_done_reply_once() -> None:
+    # Этап LEARNING_CHECK закрывает StageDirector: TRAINING_QUIZ → TRAINING_DONE
+    # → EXAMPLE; реплика TRAINING_DONE уходит ровно один раз.
+    from application.ports.stage_director import StageDecision
+
+    class _QuizDoneDirector:
+        async def decide(self, *, state: FSMState, ctx: SessionContext) -> StageDecision:
+            if state is FSMState.TRAINING_QUIZ:
+                return StageDecision(True, "learning_check_finished_success", "test")
+            return StageDecision(False, "continue", "")
+
     store = InMemorySessionStore()
     sid = uuid4()
     await store.save(
@@ -172,7 +172,7 @@ async def test_quiz_close_emits_training_done_reply_once() -> None:
         fsm=FSMService(),
         store=store,
         avatar=_StateAwareAvatar(),
-        quiz_director=_FakeQuizDirector(),
+        stage_director=_QuizDoneDirector(),
     )
 
     result = await runner.dispatch(sid, UserMessage(text="мой ответ"))
@@ -181,18 +181,16 @@ async def test_quiz_close_emits_training_done_reply_once() -> None:
         e for e in result.effects if isinstance(e, EmitText) and e.text == "MSG:TRAINING_DONE"
     ]
     assert len(done_msgs) == 1, [e.text for e in result.effects if isinstance(e, EmitText)]
+    snap = await store.load(sid)
+    assert snap is not None and snap.state is FSMState.EXAMPLE
 
 
 @pytest.mark.asyncio
 async def test_example_hint_only_for_cc_novichok() -> None:
     # Подсказка «📌 …» (rationale cc_novichok) не должна показываться для
     # техник продаж.
-    cc_hint = SessionRunner._build_hint(
-        FSMState.EXAMPLE, SessionContext(product_id="cc_novichok")
-    )
+    cc_hint = SessionRunner._build_hint(FSMState.EXAMPLE, SessionContext(product_id="cc_novichok"))
     assert isinstance(cc_hint, EmitHint)
 
     for pid in ("xpv", "spin", "pusk", "aida", "storytelling"):
-        assert (
-            SessionRunner._build_hint(FSMState.EXAMPLE, SessionContext(product_id=pid)) is None
-        )
+        assert SessionRunner._build_hint(FSMState.EXAMPLE, SessionContext(product_id=pid)) is None

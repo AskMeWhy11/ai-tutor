@@ -4,7 +4,7 @@
 - Глобальные (общие для всех кейсов): system_prompt, templates (служебные
   реплики FSM).
 - Per-case (свои у каждого продукта): mode_prompts (TRAINING/EXAMPLE/
-  PRACTICE/KNOWLEDGE), quiz_prompt, stage_director_prompt.
+  PRACTICE/KNOWLEDGE, LEARNING_CHECK — этап TRAINING), stage_director_prompts.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from infrastructure.llm.default_prompts import (
     default_customer_profile_system_prompt,
     default_customer_profile_user_prompt,
     default_mode_prompts,
-    default_quiz_prompt,
     default_stage_director_prompts,
 )
 
@@ -61,7 +60,10 @@ EDITABLE_STATES: Final[tuple[FSMState, ...]] = tuple(s for s in FSMState if s no
 # v9: stage_director_prompt разделён по режимам: stage_director_prompts
 #     (TRAINING/EXAMPLE/PRACTICE/KNOWLEDGE). При миграции общий текст
 #     копируется во все 4 поля (без потери контента).
-_SCHEMA_VERSION: Final[int] = 9
+# v10: QUIZ больше не отдельный режим — этап LEARNING_CHECK внутри TRAINING.
+#      quiz_prompt удалён; при миграции его текст дописывается секцией
+#      «ЭТАП LEARNING_CHECK» в TRAINING-промпт (без потери контента).
+_SCHEMA_VERSION: Final[int] = 10
 
 
 def default_templates() -> dict[FSMState, str]:
@@ -97,13 +99,19 @@ def default_templates() -> dict[FSMState, str]:
     }
 
 
+def _merge_quiz_into_training(training: str, quiz: str) -> str:
+    """Миграция v<10: контент квиз-промпта — секцией LEARNING_CHECK в TRAINING."""
+    if not quiz.strip():
+        return training
+    return f"{training.rstrip()}\n\n=== ЭТАП LEARNING_CHECK (проверка знаний) ===\n{quiz.strip()}\n"
+
+
 @dataclass(frozen=True, slots=True)
 class PromptSnapshot:
     version: int
     system_prompt: str
     templates: dict[FSMState, str] = field(default_factory=dict)
     mode_prompts: dict[Mode, str] = field(default_factory=dict)
-    quiz_prompt: str = ""
     stage_director_prompts: dict[Mode, str] = field(default_factory=dict)
     customer_profile_system_prompt: str = ""
     customer_profile_user_prompt: str = ""
@@ -113,7 +121,6 @@ class PromptSnapshot:
 @dataclass(slots=True)
 class _CaseBundle:
     mode_prompts: dict[Mode, str]
-    quiz_prompt: str
     stage_director_prompts: dict[Mode, str]
     customer_profile_system_prompt: str = ""
     customer_profile_user_prompt: str = ""
@@ -143,7 +150,6 @@ class PromptStore:
         if bundle is None:
             bundle = _CaseBundle(
                 mode_prompts=default_mode_prompts(cid),
-                quiz_prompt=default_quiz_prompt(cid),
                 stage_director_prompts=default_stage_director_prompts(cid),
             )
             self._cases[cid] = bundle
@@ -207,12 +213,6 @@ class PromptStore:
             profile = self._bundle(case_id).customer_profile
             return dict(profile) if profile else None
 
-    def get_quiz_prompt(self, case_id: str | None = None) -> str:
-        self._ensure_loaded()
-        with self._lock:
-            template = self._bundle(case_id).quiz_prompt
-        return render_prompt(template, case_id)
-
     def get_customer_profile_prompts(self, case_id: str | None = None) -> tuple[str, str]:
         """(system, user) промпты create-customer-profile с подставленным контентом."""
         self._ensure_loaded()
@@ -241,20 +241,18 @@ class PromptStore:
         system_prompt: str,
         templates: dict[FSMState, str],
         mode_prompts: dict[Mode, str] | None = None,
-        quiz_prompt: str | None = None,
         stage_director_prompts: dict[Mode, str] | None = None,
         customer_profile_system_prompt: str | None = None,
         customer_profile_user_prompt: str | None = None,
         case_id: str | None = None,
     ) -> None:
-        """Сохранить глобальные промпты + per-case (mode/quiz) для case_id."""
+        """Сохранить глобальные промпты + per-case (mode/SD) для case_id."""
         self._ensure_loaded()
         with self._lock:
             self._system_prompt = system_prompt
             self._templates = {s: t for s, t in templates.items() if s not in DYNAMIC_STATES}
             has_overrides = (
                 mode_prompts is not None
-                or quiz_prompt is not None
                 or stage_director_prompts is not None
                 or customer_profile_system_prompt is not None
                 or customer_profile_user_prompt is not None
@@ -265,8 +263,6 @@ class PromptStore:
                     bundle.mode_prompts = {
                         m: t for m, t in mode_prompts.items() if isinstance(m, Mode)
                     }
-                if quiz_prompt is not None:
-                    bundle.quiz_prompt = quiz_prompt
                 if stage_director_prompts is not None:
                     for m, text in stage_director_prompts.items():
                         if isinstance(m, Mode) and text.strip():
@@ -287,16 +283,6 @@ class PromptStore:
             self._flush_unlocked()
             return text
 
-    def restore_quiz_prompt(self, case_id: str | None = None) -> str:
-        """Сбросить квиз-промпт к дефолту."""
-        self._ensure_loaded()
-        with self._lock:
-            cid = self._resolve_case(case_id)
-            text = default_quiz_prompt(cid)
-            self._bundle(cid).quiz_prompt = text
-            self._flush_unlocked()
-            return text
-
     def snapshot(self, case_id: str | None = None) -> PromptSnapshot:
         self._ensure_loaded()
         with self._lock:
@@ -309,7 +295,6 @@ class PromptStore:
                 system_prompt=self._system_prompt,
                 templates=tpls,
                 mode_prompts=modes,
-                quiz_prompt=bundle.quiz_prompt,
                 stage_director_prompts=dict(bundle.stage_director_prompts),
                 customer_profile_system_prompt=(
                     bundle.customer_profile_system_prompt
@@ -341,7 +326,6 @@ class PromptStore:
         self._cases = {
             cid: _CaseBundle(
                 mode_prompts=default_mode_prompts(cid),
-                quiz_prompt=default_quiz_prompt(cid),
                 stage_director_prompts=default_stage_director_prompts(cid),
             )
             for cid in editable_case_ids()
@@ -397,7 +381,6 @@ class PromptStore:
             self._cases = {
                 cid: _CaseBundle(
                     mode_prompts=default_mode_prompts(cid),
-                    quiz_prompt=default_quiz_prompt(cid),
                     stage_director_prompts=(
                         dict.fromkeys(Mode, legacy_sd)
                         if legacy_sd is not None and cid == DEFAULT_CASE_ID
@@ -418,6 +401,8 @@ class PromptStore:
 
         if version < 8:
             self._migrate_placeholders_unlocked()
+        if version < _SCHEMA_VERSION:
+            # Апгрейд схемы (в т.ч. v10: merge quiz→training) — переписываем файл.
             self._flush_unlocked()
 
     def _migrate_placeholders_unlocked(self) -> None:
@@ -432,7 +417,6 @@ class PromptStore:
         self._templates = {s: _fix(t) for s, t in self._templates.items()}
         for bundle in self._cases.values():
             bundle.mode_prompts = {m: _fix(t) for m, t in bundle.mode_prompts.items()}
-            bundle.quiz_prompt = _fix(bundle.quiz_prompt)
             bundle.stage_director_prompts = {
                 m: _fix(text) for m, text in bundle.stage_director_prompts.items()
             }
@@ -457,10 +441,12 @@ class PromptStore:
         )
         legacy_quiz_raw = raw.get("quiz_prompt")
         legacy_quiz = (
-            legacy_quiz_raw
-            if isinstance(legacy_quiz_raw, str) and legacy_quiz_raw.strip()
-            else default_quiz_prompt(DEFAULT_CASE_ID)
+            legacy_quiz_raw if isinstance(legacy_quiz_raw, str) and legacy_quiz_raw.strip() else ""
         )
+        if legacy_quiz:
+            legacy_modes[Mode.TRAINING] = _merge_quiz_into_training(
+                legacy_modes.get(Mode.TRAINING, ""), legacy_quiz
+            )
         legacy_stage_directors = (
             dict.fromkeys(Mode, legacy_sd)
             if legacy_sd is not None
@@ -471,12 +457,10 @@ class PromptStore:
             if cid == DEFAULT_CASE_ID:
                 out[cid] = _CaseBundle(
                     mode_prompts=legacy_modes,
-                    quiz_prompt=legacy_quiz,
                     stage_director_prompts=legacy_stage_directors,
                 )
             else:
                 out[cid] = _CaseBundle(
-                    quiz_prompt=default_quiz_prompt(cid),
                     mode_prompts=default_mode_prompts(cid),
                     stage_director_prompts=default_stage_director_prompts(cid),
                 )
@@ -486,17 +470,18 @@ class PromptStore:
         if entry is None:
             return _CaseBundle(
                 mode_prompts=default_mode_prompts(case_id),
-                quiz_prompt=default_quiz_prompt(case_id),
                 stage_director_prompts=default_stage_director_prompts(case_id),
             )
         modes_raw = entry.get("mode_prompts", {}) or {}
         modes = self._parse_modes(case_id, modes_raw if isinstance(modes_raw, dict) else {})
+        # v<10: сохранённый quiz_prompt дописывается секцией LEARNING_CHECK
+        # в TRAINING-промпт (контент не теряется). Если TRAINING остался
+        # дефолтным — новый дефолт уже содержит секцию, merge не нужен.
         quiz_raw = entry.get("quiz_prompt")
-        quiz = (
-            quiz_raw
-            if isinstance(quiz_raw, str) and quiz_raw.strip()
-            else default_quiz_prompt(case_id)
-        )
+        if isinstance(quiz_raw, str) and quiz_raw.strip():
+            saved_training = modes.get(Mode.TRAINING, "")
+            if "=== ЭТАП LEARNING_CHECK" not in saved_training:
+                modes[Mode.TRAINING] = _merge_quiz_into_training(saved_training, quiz_raw)
         # v9: dict по режимам; v8 и старше: одна строка stage_director_prompt —
         # раскладывается во все 4 режима (без потери контента).
         sd_prompts = default_stage_director_prompts(case_id)
@@ -534,7 +519,6 @@ class PromptStore:
         )
         return _CaseBundle(
             mode_prompts=modes,
-            quiz_prompt=quiz,
             stage_director_prompts=sd_prompts,
             customer_profile_system_prompt=cp_sys,
             customer_profile_user_prompt=cp_user,
@@ -563,7 +547,6 @@ class PromptStore:
             "cases": {
                 cid: {
                     "mode_prompts": {m.value: b.mode_prompts.get(m, "") for m in Mode},
-                    "quiz_prompt": b.quiz_prompt,
                     "stage_director_prompts": {
                         m.value: b.stage_director_prompts.get(m, "") for m in Mode
                     },

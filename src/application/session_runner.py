@@ -21,7 +21,6 @@ from application.commands import (
     Command,
     Continue,
     DialogDone,
-    ExplanationDone,
     PracticeEvaluated,
     RepeatCycle,
     ScenarioDone,
@@ -44,7 +43,6 @@ from application.ports.answer_checker import AnswerChecker
 from application.ports.avatar import AvatarClient
 from application.ports.customer_profile import CustomerProfileGenerator, CustomerProfileStore
 from application.ports.practice_evaluator import PracticeEvaluator
-from application.ports.quiz_director import QuizDirector
 from application.ports.session_store import SessionStore
 from application.ports.stage_director import StageDecision, StageDirector
 from application.ports.tts_client import TTSClient
@@ -69,6 +67,8 @@ _MESSAGE_KEYS_RU: dict[str, str] = {
 _HISTORY_STATES: frozenset[FSMState] = frozenset(
     {
         FSMState.TRAINING,
+        # Этап LEARNING_CHECK — продолжение единого TRAINING-диалога.
+        FSMState.TRAINING_QUIZ,
         FSMState.EXAMPLE,
         FSMState.PRACTICE,
         FSMState.KNOWLEDGE,
@@ -79,6 +79,7 @@ _HISTORY_STATES: frozenset[FSMState] = frozenset(
 _DIRECTED_STAGES: frozenset[FSMState] = frozenset(
     {
         FSMState.TRAINING,
+        FSMState.TRAINING_QUIZ,
         FSMState.EXAMPLE,
         FSMState.PRACTICE,
         FSMState.KNOWLEDGE,
@@ -100,7 +101,6 @@ class SessionRunner:
         audio_cache: AudioCachePort | None = None,
         answer_checker: AnswerChecker | None = None,
         practice_evaluator: PracticeEvaluator | None = None,
-        quiz_director: QuizDirector | None = None,
         stage_director: StageDirector | None = None,
         customer_profile_generator: CustomerProfileGenerator | None = None,
         customer_profile_store: CustomerProfileStore | None = None,
@@ -112,7 +112,6 @@ class SessionRunner:
         self._audio_cache = audio_cache
         self._answer_checker = answer_checker
         self._practice_evaluator = practice_evaluator
-        self._quiz_director = quiz_director
         self._stage_director = stage_director
         self._customer_profile_generator = customer_profile_generator
         self._customer_profile_store = customer_profile_store
@@ -129,14 +128,6 @@ class SessionRunner:
         else:
             state = snapshot.state
             ctx = snapshot.ctx
-
-        # TRAINING_QUIZ ведёт QuizDirector — это отдельный путь.
-        if (
-            state is FSMState.TRAINING_QUIZ
-            and isinstance(command, UserMessage)
-            and self._quiz_director is not None
-        ):
-            return await self._run_quiz_turn(session_id, ctx, command.text)
 
         # 1) Базовый handle.
         result = self._fsm.handle(state, command, ctx)
@@ -264,7 +255,17 @@ class SessionRunner:
         if first_cmd is None and special is None:
             return cur_state, cur_ctx, ()
 
-        if special == "practice_refused_eval":
+        if special == "learning_check_done":
+            # Закрываем квиз: фиксируем цель = текущий индекс + 1 и шлём
+            # «правильный ответ» — FSM переходит TRAINING_QUIZ → TRAINING_DONE.
+            forced = dataclasses.replace(
+                cur_ctx, quiz_target_questions=cur_ctx.quiz_question_index + 1
+            )
+            await self._store.save(session_id, cur_state, forced)
+            cur_state, cur_ctx = await self._apply_cmd(
+                session_id, cur_state, forced, SubmitQuizAnswer(correct=True)
+            )
+        elif special == "practice_refused_eval":
             # PRACTICE refused → DialogDone + PracticeEvaluator (LLM сама
             # решит, какие зоны западают по куску диалога).
             cur_state, cur_ctx = await self._apply_cmd(session_id, cur_state, cur_ctx, DialogDone())
@@ -307,6 +308,16 @@ class SessionRunner:
         if state is FSMState.TRAINING:
             if decision.outcome == "training_understood":
                 return TheoryDone(), None
+            return None, None
+
+        if state is FSMState.TRAINING_QUIZ:
+            # Оба финальных статуса LEARNING_CHECK закрывают теорию и ведут
+            # к EXAMPLE (продуктовый сценарий одинаков; различие — в reason).
+            if decision.outcome in (
+                "learning_check_finished_success",
+                "learning_check_finished_failed",
+            ):
+                return None, "learning_check_done"
             return None, None
 
         if state is FSMState.EXAMPLE:
@@ -409,104 +420,6 @@ class SessionRunner:
             return ZONE_ORDER
 
     # ------------------------------------------------------------------
-    # TRAINING_QUIZ через QuizDirector (без изменений)
-    # ------------------------------------------------------------------
-
-    async def _run_quiz_turn(
-        self,
-        session_id: UUID,
-        ctx: SessionContext,
-        user_text: str,
-    ) -> FSMResult:
-        assert self._quiz_director is not None
-
-        text = (user_text or "").strip()
-        if not text:
-            return FSMResult(FSMState.TRAINING_QUIZ, ctx, ())
-
-        try:
-            turn = await self._quiz_director.next_turn(ctx, text)
-        except Exception:
-            logger.exception("quiz_director.next_turn failed")
-            return FSMResult(FSMState.TRAINING_QUIZ, ctx, ())
-
-        # Ведём историю квиза: ответ сотрудника + последующие реплики
-        # аватара (разъяснение/следующий вопрос). Применяем к final_ctx
-        # в самом конце, чтобы модель на следующем ходу видела весь ход.
-        quiz_msgs: list[ChatMessage] = [ChatMessage(role="user", text=text)]
-
-        effects: list[Effect] = [PersistSession()]
-        final_state: FSMState = FSMState.TRAINING_QUIZ
-        final_ctx: SessionContext = ctx
-
-        if turn.verdict == "correct":
-            ctx_for_fsm = ctx
-            if turn.done:
-                ctx_for_fsm = dataclasses.replace(
-                    ctx, quiz_target_questions=ctx.quiz_question_index + 1
-                )
-            result = self._fsm.handle(
-                FSMState.TRAINING_QUIZ, SubmitQuizAnswer(correct=True), ctx_for_fsm
-            )
-            await self._store.save(session_id, result.new_state, result.new_ctx)
-            final_state = result.new_state
-            final_ctx = result.new_ctx
-
-            if final_state is FSMState.TRAINING_QUIZ and turn.next_question:
-                effects.extend(await self._reply_effects(turn.next_question))
-                quiz_msgs.append(ChatMessage(role="assistant", text=turn.next_question))
-
-        elif turn.verdict == "incorrect":
-            r1 = self._fsm.handle(FSMState.TRAINING_QUIZ, SubmitQuizAnswer(correct=False), ctx)
-            await self._store.save(session_id, r1.new_state, r1.new_ctx)
-            r2 = self._fsm.handle(FSMState.TRAINING_EXPLAIN, ExplanationDone(), r1.new_ctx)
-            await self._store.save(session_id, r2.new_state, r2.new_ctx)
-            final_state = r2.new_state
-            final_ctx = r2.new_ctx
-
-            if turn.explanation:
-                effects.extend(await self._reply_effects(turn.explanation))
-                quiz_msgs.append(ChatMessage(role="assistant", text=turn.explanation))
-            if turn.next_question:
-                effects.extend(await self._reply_effects(turn.next_question))
-                quiz_msgs.append(ChatMessage(role="assistant", text=turn.next_question))
-        else:
-            if turn.next_question:
-                effects.extend(await self._reply_effects(turn.next_question))
-                quiz_msgs.append(ChatMessage(role="assistant", text=turn.next_question))
-
-        # Дописываем ход квиза в историю (если квиз ещё идёт).
-        if final_state in (FSMState.TRAINING_QUIZ, FSMState.TRAINING_EXPLAIN):
-            merged = (*final_ctx.quiz_history, *quiz_msgs)
-            final_ctx = dataclasses.replace(final_ctx, quiz_history=merged)
-            await self._store.save(session_id, final_state, final_ctx)
-
-        # Если квиз закрыт — авто-проходим TRAINING_DONE → EXAMPLE.
-        # _advance_chain сам эмитит реплику TRAINING_DONE первым шагом,
-        # поэтому отдельный _build_avatar_effects здесь НЕ нужен — иначе
-        # реплика «Отлично, теоретическую часть прошли…» уходит дважды.
-        if final_state is FSMState.TRAINING_DONE:
-            final_state, final_ctx, chain = await self._advance_chain(
-                session_id, final_state, final_ctx
-            )
-            effects.extend(chain)
-
-        return FSMResult(new_state=final_state, new_ctx=final_ctx, effects=tuple(effects))
-
-    async def _reply_effects(self, text: str) -> list[Effect]:
-        out: list[Effect] = [EmitText(text=text)]
-        if self._tts is not None and self._audio_cache is not None:
-            try:
-                audio = await self._tts.synthesize(text)
-            except Exception:
-                logger.exception("tts.synthesize failed")
-                audio = None
-            if audio:
-                key = await self._audio_cache.put(audio, self._tts.extension)
-                out.append(PlayAudio(url=f"/api/audio/{key}", mime=self._tts.mime))
-        return out
-
-    # ------------------------------------------------------------------
     # Аватар
     # ------------------------------------------------------------------
 
@@ -515,31 +428,6 @@ class SessionRunner:
         state: FSMState,
         ctx: SessionContext,
     ) -> tuple[tuple[Effect, ...], SessionContext]:
-        # TRAINING_QUIZ: kickoff ведёт QuizDirector.
-        if state is FSMState.TRAINING_QUIZ:
-            if self._quiz_director is None:
-                return (), ctx
-            if ctx.quiz_question_index != 0 or ctx.last_answer_correct is not None:
-                return (), ctx
-            try:
-                turn = await self._quiz_director.next_turn(ctx, None)
-            except Exception:
-                logger.exception("quiz_director.next_turn (kickoff) failed")
-                return (), ctx
-            if not turn.next_question:
-                return (), ctx
-            # Первый вопрос кладём в историю квиза, чтобы модель на
-            # следующем ходу видела, на что отвечает сотрудник.
-            ctx = dataclasses.replace(
-                ctx,
-                quiz_history=(
-                    *ctx.quiz_history,
-                    ChatMessage(role="assistant", text=turn.next_question),
-                ),
-            )
-            effects = await self._reply_effects(turn.next_question)
-            return tuple(effects), ctx
-
         if state is FSMState.PRACTICE and not ctx.dialog_history:
             await self._prepare_customer_profile(ctx)
 

@@ -115,44 +115,6 @@ def test_stage_director_uses_mode_prompt() -> None:
     assert _STATE_TO_MODE[FSMState.KNOWLEDGE] is Mode.KNOWLEDGE
 
 
-# ---------- QUIZ: общий system prompt подаётся ----------
-
-
-async def test_quiz_director_prepends_global_system_prompt(tmp_path: Path) -> None:
-    from domain.context import SessionContext
-    from infrastructure.llm.gigachat_quiz_director import GigaChatQuizDirector
-    from infrastructure.llm.stub_quiz_director import StubQuizDirector
-
-    store = PromptStore(tmp_path / "prompts.json")
-    snap = store.snapshot()
-    store.replace_all(system_prompt="GLOBAL-SYSTEM-RULE", templates=snap.templates)
-
-    captured: list[list[tuple[str, str]]] = []
-
-    class _FakeClient:
-        pass
-
-    director = GigaChatQuizDirector(
-        client=_FakeClient(),  # type: ignore[arg-type]
-        prompt_store=store,
-        fallback=StubQuizDirector(),
-    )
-
-    async def _fake_chat(messages: list[tuple[str, str]]) -> str:
-        captured.append(messages)
-        return '{"verdict": "none", "explanation": "", "next_question": "q", "done": false}'
-
-    director._chat = _fake_chat  # type: ignore[method-assign]
-    await director.next_turn(SessionContext(product_id="cc_novichok"), None)
-
-    assert captured, "LLM не вызван"
-    role, system_text = captured[0][0]
-    assert role == "system"
-    assert system_text.startswith("GLOBAL-SYSTEM-RULE")
-    # Промпт квиза тоже на месте (конкатенация, а не замена).
-    assert len(system_text) > len("GLOBAL-SYSTEM-RULE") + 10
-
-
 # ---------- YAML: критерии внутри блока режима ----------
 
 

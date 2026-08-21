@@ -33,6 +33,24 @@ def _real_dialogues(case_id: str) -> str:
     return dialogues if dialogues else "(образцовые диалоги не загружены)"
 
 
+def _learning_check_list(case_id: str) -> str:
+    """Контрольные вопросы LEARNING_CHECK: критерии чек-листа кейса."""
+    checklist = load_case(case_id).checklist
+    lines: list[str] = []
+    n = 0
+    for zone_items in checklist.values():
+        for item in zone_items:
+            n += 1
+            lines.append(f"{n}. {item.name}: {item.criteria}")
+    return "\n".join(lines) if lines else "(контрольные вопросы не заданы)"
+
+
+def _count_of_questions(case_id: str) -> str:
+    from domain.constants import TRAINING_QUIZ_QUESTIONS
+
+    return str(TRAINING_QUIZ_QUESTIONS)
+
+
 def _checklist(case_id: str) -> str:
     checklist = load_case(case_id).checklist
     lines: list[str] = []
@@ -51,6 +69,8 @@ VARIABLES_MAP: Final[dict[str, Callable[[str], str]]] = {
     "real-dialogues": _real_dialogues,
     "learning-details": _product_details,
     "checklist": _checklist,
+    "learning-check-list": _learning_check_list,
+    "count-of-questions": _count_of_questions,
 }
 
 

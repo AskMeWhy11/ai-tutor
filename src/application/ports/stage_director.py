@@ -20,6 +20,8 @@ __all__ = ["StageDecision", "StageDirector", "StageOutcome"]
 StageOutcome = Literal[
     "continue",
     "training_understood",
+    "learning_check_finished_success",
+    "learning_check_finished_failed",
     "example_accepted",
     "example_refused_3x",
     "practice_accepted",

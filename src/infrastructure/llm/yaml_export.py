@@ -57,7 +57,6 @@ def export_prompts_yaml(store: PromptStore, case_id: str) -> str:
 
     entries: tuple[tuple[str, str], ...] = (
         (f"{slug}-learning-transcription-prompt", with_criteria(Mode.TRAINING)),
-        (f"{slug}-learning-quiz-transcription-prompt", snap.quiz_prompt),
         (f"{slug}-client-transcription-prompt", with_criteria(Mode.EXAMPLE)),
         (f"{slug}-employee-transcription-prompt", with_criteria(Mode.PRACTICE)),
         (f"{slug}-mentor-transcription-prompt", with_criteria(Mode.KNOWLEDGE)),

@@ -227,12 +227,14 @@ def test_export_prompts_yaml_reflects_edits(tmp_path: Path) -> None:
     store.replace_all(
         system_prompt=snap.system_prompt,
         templates=snap.templates,
-        quiz_prompt="EDITED QUIZ TEXT",
+        mode_prompts={**snap.mode_prompts, Mode.TRAINING: "EDITED TRAINING TEXT"},
         case_id="xpv",
     )
     out = export_prompts_yaml(store, "xpv")
-    assert "    xpv-learning-quiz-transcription-prompt: |" in out
-    assert "      EDITED QUIZ TEXT" in out
+    assert "    xpv-learning-transcription-prompt: |" in out
+    assert "      EDITED TRAINING TEXT" in out
+    # Ключа квиза больше нет.
+    assert "-learning-quiz-transcription-prompt:" not in out
 
 
 def test_export_variables_yaml_reference_structure() -> None:

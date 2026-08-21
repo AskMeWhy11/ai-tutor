@@ -1,7 +1,7 @@
 from domain.states import Mode
 from infrastructure.content.case_loader import invalidate_case_cache
 from infrastructure.llm.content_render import render_prompt
-from infrastructure.llm.default_prompts import default_mode_prompts, default_quiz_prompt
+from infrastructure.llm.default_prompts import default_mode_prompts
 
 
 def setup_function() -> None:
@@ -39,13 +39,13 @@ def test_default_training_prompt_differs_for_sales_techniques() -> None:
     assert "2–4 предложения" not in cc_training
 
 
-def test_default_quiz_prompt_is_softer_for_sales_techniques() -> None:
+def test_learning_check_is_softer_for_sales_techniques() -> None:
     # Квиз для техник продаж оценивает мягче и не требует лишнего.
-    aida_quiz = default_quiz_prompt("aida")
-    cc_quiz = default_quiz_prompt("cc_novichok")
-    assert aida_quiz != cc_quiz
-    assert "ОЦЕНИВАЙ МЯГКО" in aida_quiz
-    assert "ОЦЕНИВАЙ МЯГКО" not in cc_quiz
+    aida = default_mode_prompts("aida")[Mode.TRAINING]
+    cc = default_mode_prompts("cc_novichok")[Mode.TRAINING]
+    assert aida != cc
+    assert "ОЦЕНИВАЙ МЯГКО" in aida
+    assert "ОЦЕНИВАЙ МЯГКО" not in cc
 
 
 def test_default_mode_prompts_contain_placeholders() -> None:
@@ -57,15 +57,17 @@ def test_default_mode_prompts_contain_placeholders() -> None:
     assert "{REAL_DIALOGUES}" in prompts[Mode.PRACTICE]
 
 
-def test_default_quiz_prompt_contains_placeholders() -> None:
+def test_training_learning_check_section_placeholders() -> None:
     for cid in ("cc_novichok", "aida"):
-        assert "{PRODUCT_NAME}" in default_quiz_prompt(cid)
-        assert "{PRODUCT_DETAILS}" in default_quiz_prompt(cid)
+        training = default_mode_prompts(cid)[Mode.TRAINING]
+        assert "=== ЭТАП LEARNING_CHECK" in training
+        assert "{STEP}" in training
+        assert "{LEARNING_CHECK_LIST}" in training
+        assert "{COUNT_OF_QUESTIONS}" in training
 
 
 def test_default_arg_is_cc_novichok() -> None:
     assert default_mode_prompts() == default_mode_prompts("cc_novichok")
-    assert default_quiz_prompt() == default_quiz_prompt("cc_novichok")
 
 
 def test_cc_prompt_name_has_no_course_level_suffix() -> None:

@@ -14,6 +14,7 @@ from infrastructure.llm.content_render import (
     LEGACY_PLACEHOLDERS,
     PLACEHOLDERS,
     PROFILE_PLACEHOLDERS,
+    STEP_PLACEHOLDERS,
     render_prompt,
 )
 from infrastructure.llm.default_prompts import (
@@ -29,7 +30,6 @@ pytestmark = pytest.mark.unit
 
 _PURPOSES = (
     "learning-transcription",
-    "learning-quiz-transcription",
     "client-transcription",
     "employee-transcription",
     "mentor-transcription",
@@ -62,7 +62,7 @@ def test_prompts_map_keys_follow_reference_grammar() -> None:
 def test_prompts_use_only_reference_placeholders() -> None:
     import re
 
-    allowed = set(PLACEHOLDERS) | set(PROFILE_PLACEHOLDERS)
+    allowed = set(PLACEHOLDERS) | set(PROFILE_PLACEHOLDERS) | set(STEP_PLACEHOLDERS)
     for key, text in prompts_map().items():
         found = set(re.findall(r"\{([A-Z][A-Z_]*)\}", text))
         assert found <= allowed, f"{key}: неизвестные плейсхолдеры {found - allowed}"
@@ -117,7 +117,6 @@ def test_store_migrates_legacy_placeholders(tmp_path: Path) -> None:
                     "practice": "P {FACTS} {DIALOGUES}",
                     "knowledge": "K {PRODUCT}",
                 },
-                "quiz_prompt": "Q {FACTS}",
                 "stage_director_prompt": "S {PRODUCT}",
             }
         },
@@ -130,13 +129,12 @@ def test_store_migrates_legacy_placeholders(tmp_path: Path) -> None:
     assert snap.mode_prompts[Mode.TRAINING] == "T {PRODUCT_DETAILS}"
     assert snap.mode_prompts[Mode.EXAMPLE] == "E {REAL_DIALOGUES}"
     assert snap.mode_prompts[Mode.KNOWLEDGE] == "K {PRODUCT_NAME}"
-    assert snap.quiz_prompt == "Q {PRODUCT_DETAILS}"
     assert all(v == "S {PRODUCT_NAME}" for v in snap.stage_director_prompts.values())
     assert snap.system_prompt == "Продукт {PRODUCT_NAME}"
 
     # Файл переписан в v8 — legacy-плейсхолдеров больше нет.
     raw = path.read_text(encoding="utf-8")
-    assert raw and json.loads(raw)["version"] == 9
+    assert raw and json.loads(raw)["version"] == 10
     for old in LEGACY_PLACEHOLDERS:
         assert "{" + old + "}" not in raw
 

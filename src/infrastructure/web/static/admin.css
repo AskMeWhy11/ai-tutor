@@ -406,13 +406,41 @@
     color: var(--brand-dark, #5b21b6);
 }
 .admin-product-row {
-    justify-content: flex-start;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
 }
 .admin-product-row input[type="text"] {
-    flex: 1 1 180px;
+    flex: none;
+    width: 100%;
+    box-sizing: border-box;
     padding: 6px 10px;
     border: 1px solid var(--border, #d0d0d8);
     border-radius: 8px;
     font-size: 14px;
+}
+.admin-product-row code {
+    font-size: 13px;
+    color: var(--fg-muted);
+}
+.admin-product-row .btn {
+    align-self: flex-start;
+}
+.admin-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--fg-muted, #555);
+    user-select: none;
+}
+.admin-checkbox input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    margin: 0;
+}
+.admin-checkbox span {
+    line-height: 1.2;
 }

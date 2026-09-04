@@ -31,6 +31,7 @@ from domain.events import FSMEvent
 from domain.states import FSMState, Mode
 from domain.transitions import get_next_state
 from domain.types import ChatMessage
+from infrastructure.content.registry import is_training_only
 
 
 @dataclass(frozen=True)
@@ -151,10 +152,12 @@ class FSMService:
             raise ValueError(f"StartTraining допустима только в MENU, получено {state}")
 
         new_state = get_next_state(state, FSMEvent.TRAINING_STARTED)
+        product_id = command.product_id or ctx.product_id
         new_ctx = dataclasses.replace(
             ctx,
             employee_name=command.employee_name or ctx.employee_name,
-            product_id=command.product_id or ctx.product_id,
+            product_id=product_id,
+            training_only=is_training_only(product_id),
         )
         return FSMResult(new_state, new_ctx, (PersistSession(),))
 
@@ -177,6 +180,10 @@ class FSMService:
         if command.mode == "training":
             new_state = get_next_state(state, FSMEvent.MODE_TRAINING)
             return FSMResult(new_state, new_ctx, (PersistSession(),))
+
+        # Продукт с флагом training_only не поддерживает ролевые режимы.
+        if ctx.training_only:
+            return FSMResult(state, ctx, (EmitMessage("training_only_hint"),))
 
         if command.mode == "example":
             event = FSMEvent.MODE_EXAMPLE_DIRECT if training_done else FSMEvent.MODE_EXAMPLE

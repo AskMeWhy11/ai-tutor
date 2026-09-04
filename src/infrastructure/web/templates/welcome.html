@@ -48,7 +48,7 @@
                         {% for p in products %}
                         <option value="{{ p.id }}"
                                 {% if p.available %}{% if loop.first %}selected{% endif %}{% else %}disabled{% endif %}>
-                            {{ p.label }}{% if not p.available %} — скоро{% endif %}
+                            {{ p.label }}{% if not p.available %} — скоро{% endif %}{% if p.training_only %} (только обучение){% endif %}
                         </option>
                         {% endfor %}
                     </select>

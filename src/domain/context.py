@@ -18,6 +18,9 @@ class SessionContext:
     has_active_session: bool = False
     employee_name: str = ""
     product_id: str = ""
+    # Продукт поддерживает только TRAINING. Копируется из CaseInfo при StartTraining,
+    # чтобы FSMService мог блокировать не-training режимы без обращения к реестру.
+    training_only: bool = False
     completed_modes: frozenset[Mode] = frozenset()
     weak_zones_remaining: tuple[str, ...] = ()
     cycle_count: int = 0

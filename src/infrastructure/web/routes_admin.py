@@ -83,7 +83,12 @@ def _case_options(selected: str) -> list[dict[str, Any]]:
 
 def _products_view() -> list[dict[str, Any]]:
     return [
-        {"id": c.case_id, "label": c.label, "product_name": c.product_name}
+        {
+            "id": c.case_id,
+            "label": c.label,
+            "product_name": c.product_name,
+            "training_only": c.training_only,
+        }
         for c in all_cases()
         if c.available
     ]
@@ -520,8 +525,9 @@ def build_admin_router() -> list[APIRouter]:
         case_id = str(form.get("case_id", "")).strip()
         label = str(form.get("label", "")).strip()
         product_name = str(form.get("product_name", "")).strip()
+        training_only = str(form.get("training_only", "")).lower() in ("on", "true", "1", "yes")
         try:
-            create_product(case_id, label, product_name)
+            create_product(case_id, label, product_name, training_only=training_only)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         # Скелет контента кейса: дефолтная папка + рабочие копии.
@@ -551,8 +557,14 @@ def build_admin_router() -> list[APIRouter]:
         form = await request.form()
         label = str(form.get("label", "")).strip()
         product_name = str(form.get("product_name", "")).strip()
+        training_only_raw = str(form.get("training_only", "")).lower()
+        training_only: bool | None = None
+        if training_only_raw in ("on", "true", "1", "yes"):
+            training_only = True
+        elif training_only_raw in ("off", "false", "0", "no", ""):
+            training_only = False
         try:
-            rename_product(case_id, label, product_name)
+            rename_product(case_id, label, product_name, training_only=training_only)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         logger.info("Product renamed: %s -> %s", case_id, label)

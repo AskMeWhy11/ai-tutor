@@ -121,6 +121,7 @@ class CommandRequest(BaseModel):
 class CtxOut(BaseModel):
     employee_name: str
     product_id: str
+    training_only: bool
     completed_modes: list[str]
     weak_zones_remaining: list[str]
     cycle_count: int

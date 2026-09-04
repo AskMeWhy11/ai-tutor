@@ -24,6 +24,7 @@ def serialize_ctx(ctx: SessionContext) -> CtxOut:
     return CtxOut(
         employee_name=ctx.employee_name,
         product_id=ctx.product_id,
+        training_only=ctx.training_only,
         completed_modes=sorted(m.value for m in ctx.completed_modes),
         weak_zones_remaining=list(ctx.weak_zones_remaining),
         cycle_count=ctx.cycle_count,

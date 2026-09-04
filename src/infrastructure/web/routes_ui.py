@@ -20,7 +20,13 @@ def build_ui_router() -> APIRouter:
     async def welcome(request: Request) -> HTMLResponse:
         templates: Jinja2Templates = request.app.state.templates
         products = [
-            {"id": c.case_id, "label": c.label, "available": c.available} for c in all_cases()
+            {
+                "id": c.case_id,
+                "label": c.label,
+                "available": c.available,
+                "training_only": c.training_only,
+            }
+            for c in all_cases()
         ]
         return templates.TemplateResponse(request, "welcome.html", {"products": products})
 

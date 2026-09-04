@@ -1,0 +1,252 @@
+diff --git a/src/application/fsm_service.py b/src/application/fsm_service.py
+index 90d8518..155f3db 100644
+--- a/src/application/fsm_service.py
++++ b/src/application/fsm_service.py
+@@ -31,6 +31,7 @@ from domain.events import FSMEvent
+ from domain.states import FSMState, Mode
+ from domain.transitions import get_next_state
+ from domain.types import ChatMessage
++from infrastructure.content.registry import is_training_only
+
+
+ @dataclass(frozen=True)
+@@ -151,10 +152,12 @@ class FSMService:
+             raise ValueError(f"StartTraining допустима только в MENU, получено {state}")
+
+         new_state = get_next_state(state, FSMEvent.TRAINING_STARTED)
++        product_id = command.product_id or ctx.product_id
+         new_ctx = dataclasses.replace(
+             ctx,
+             employee_name=command.employee_name or ctx.employee_name,
+-            product_id=command.product_id or ctx.product_id,
++            product_id=product_id,
++            training_only=is_training_only(product_id),
+         )
+         return FSMResult(new_state, new_ctx, (PersistSession(),))
+
+@@ -178,6 +181,10 @@ class FSMService:
+             new_state = get_next_state(state, FSMEvent.MODE_TRAINING)
+             return FSMResult(new_state, new_ctx, (PersistSession(),))
+
++        # Продукт с флагом training_only не поддерживает ролевые режимы.
++        if ctx.training_only:
++            return FSMResult(state, ctx, (EmitMessage("training_only_hint"),))
++
+         if command.mode == "example":
+             event = FSMEvent.MODE_EXAMPLE_DIRECT if training_done else FSMEvent.MODE_EXAMPLE
+             new_state = get_next_state(state, event)
+diff --git a/src/domain/context.py b/src/domain/context.py
+index 4da8a6b..e621f61 100644
+--- a/src/domain/context.py
++++ b/src/domain/context.py
+@@ -18,6 +18,9 @@ class SessionContext:
+     has_active_session: bool = False
+     employee_name: str = ""
+     product_id: str = ""
++    # Продукт поддерживает только TRAINING. Копируется из CaseInfo при StartTraining,
++    # чтобы FSMService мог блокировать не-training режимы без обращения к реестру.
++    training_only: bool = False
+     completed_modes: frozenset[Mode] = frozenset()
+     weak_zones_remaining: tuple[str, ...] = ()
+     cycle_count: int = 0
+diff --git a/src/infrastructure/content/registry.py b/src/infrastructure/content/registry.py
+index d7abd64..0928a25 100644
+--- a/src/infrastructure/content/registry.py
++++ b/src/infrastructure/content/registry.py
+@@ -28,6 +28,7 @@ __all__ = [
+     "editable_case_ids",
+     "invalidate_products_cache",
+     "is_known_case",
++    "is_training_only",
+     "is_valid_case_slug",
+     "preza_file_for",
+     "rename_product",
+@@ -46,6 +47,10 @@ class CaseInfo:
+     # label там, где в метке есть служебная часть (уровень курса и т.п.),
+     # которую LLM может принять за свойство продукта. Пусто → берём label.
+     product_name: str = ""
++    # Продукт поддерживает только режим TRAINING (наставник, теория).
++    # EXAMPLE / PRACTICE / KNOWLEDGE недоступны — нет контента кейса
++    # (диалоги, чек-лист) для ролевых режимов.
++    training_only: bool = False
+
+     @property
+     def prompt_name(self) -> str:
+@@ -144,6 +149,7 @@ def all_cases() -> tuple[CaseInfo, ...]:
+                 c,
+                 label=str(ov.get("label") or c.label),
+                 product_name=str(ov.get("product_name") or c.product_name),
++                training_only=bool(ov.get("training_only", c.training_only)),
+             )
+         out.append(c)
+     builtin_ids = {c.case_id for c in CASE_REGISTRY}
+@@ -159,12 +165,13 @@ def all_cases() -> tuple[CaseInfo, ...]:
+                 label=str(entry.get("label") or cid),
+                 available=True,
+                 product_name=str(entry.get("product_name") or ""),
++                training_only=bool(entry.get("training_only", False)),
+             )
+         )
+     return tuple(out)
+
+
+-def create_product(case_id: str, label: str, product_name: str = "") -> CaseInfo:
++def create_product(case_id: str, label: str, product_name: str = "", training_only: bool = False) -> CaseInfo:
+     """Создать пользовательский продукт. ValueError при невалидном id/дубле."""
+     if not is_valid_case_slug(case_id):
+         raise ValueError(
+@@ -178,16 +185,22 @@ def create_product(case_id: str, label: str, product_name: str = "") -> CaseInfo
+     with _products_lock:
+         raw = dict(_read_products_raw())
+         custom = [e for e in raw.get("custom", []) if isinstance(e, dict)]
+-        custom.append({"case_id": case_id, "label": label, "product_name": product_name.strip()})
++        custom.append({
++            "case_id": case_id,
++            "label": label,
++            "product_name": product_name.strip(),
++            "training_only": training_only,
++        })
+         raw["custom"] = custom
+         _write_products_raw(raw)
+     return next(c for c in all_cases() if c.case_id == case_id)
+
+
+-def rename_product(case_id: str, label: str, product_name: str = "") -> CaseInfo:
+-    """Переименовать продукт (label + product_name). id — технический ключ,
+-    не меняется: все связанные сущности (промпты, переменные, контент кейса,
+-    ключи YAML-экспорта) привязаны к id и подхватывают новое имя автоматически.
++def rename_product(case_id: str, label: str, product_name: str = "", training_only: bool | None = None) -> CaseInfo:
++    """Переименовать продукт (label + product_name) и/или обновить флаг training_only.
++    id — технический ключ, не меняется: все связанные сущности (промпты, переменные,
++    контент кейса, ключи YAML-экспорта) привязаны к id и подхватывают новое имя
++    автоматически.
+     """
+     label = label.strip()
+     if not label:
+@@ -198,11 +211,21 @@ def rename_product(case_id: str, label: str, product_name: str = "") -> CaseInfo
+         raw = dict(_read_products_raw())
+         if any(c.case_id == case_id for c in CASE_REGISTRY):
+             overrides = dict(raw.get("overrides", {}))
+-            overrides[case_id] = {"label": label, "product_name": product_name.strip()}
++            ov = dict(overrides.get(case_id, {}))
++            ov["label"] = label
++            ov["product_name"] = product_name.strip()
++            if training_only is not None:
++                ov["training_only"] = training_only
++            overrides[case_id] = ov
+             raw["overrides"] = overrides
+         else:
+             raw["custom"] = [
+-                {**e, "label": label, "product_name": product_name.strip()}
++                {
++                    **e,
++                    "label": label,
++                    "product_name": product_name.strip(),
++                    **({"training_only": training_only} if training_only is not None else {}),
++                }
+                 if e.get("case_id") == case_id
+                 else e
+                 for e in raw.get("custom", [])
+@@ -229,6 +252,11 @@ def is_known_case(case_id: str) -> bool:
+     return any(c.case_id == case_id for c in all_cases())
+
+
++def is_training_only(case_id: str) -> bool:
++    """True, если продукт поддерживает только режим TRAINING."""
++    return any(c.case_id == case_id and c.training_only for c in all_cases())
++
++
+ def case_label(case_id: str) -> str:
+     """Человекочитаемое название кейса/продукта. Неизвестный id → сам id."""
+     for c in all_cases():
+diff --git a/src/infrastructure/web/routes_admin.py b/src/infrastructure/web/routes_admin.py
+index 1abbfed..afa86b2 100644
+--- a/src/infrastructure/web/routes_admin.py
++++ b/src/infrastructure/web/routes_admin.py
+@@ -83,7 +83,7 @@ def _case_options(selected: str) -> list[dict[str, Any]]:
+
+ def _products_view() -> list[dict[str, Any]]:
+     return [
+-        {"id": c.case_id, "label": c.label, "product_name": c.product_name}
++        {"id": c.case_id, "label": c.label, "product_name": c.product_name, "training_only": c.training_only}
+         for c in all_cases()
+         if c.available
+     ]
+@@ -520,8 +520,9 @@ def build_admin_router() -> list[APIRouter]:
+         case_id = str(form.get("case_id", "")).strip()
+         label = str(form.get("label", "")).strip()
+         product_name = str(form.get("product_name", "")).strip()
++        training_only = str(form.get("training_only", "")).lower() in ("on", "true", "1", "yes")
+         try:
+-            create_product(case_id, label, product_name)
++            create_product(case_id, label, product_name, training_only=training_only)
+         except ValueError as exc:
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+         # Скелет контента кейса: дефолтная папка + рабочие копии.
+@@ -551,8 +552,14 @@ def build_admin_router() -> list[APIRouter]:
+         form = await request.form()
+         label = str(form.get("label", "")).strip()
+         product_name = str(form.get("product_name", "")).strip()
++        training_only_raw = str(form.get("training_only", "")).lower()
++        training_only: bool | None = None
++        if training_only_raw in ("on", "true", "1", "yes"):
++            training_only = True
++        elif training_only_raw in ("off", "false", "0", "no", ""):
++            training_only = False
+         try:
+-            rename_product(case_id, label, product_name)
++            rename_product(case_id, label, product_name, training_only=training_only)
+         except ValueError as exc:
+             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+         logger.info("Product renamed: %s -> %s", case_id, label)
+diff --git a/src/infrastructure/web/routes_ui.py b/src/infrastructure/web/routes_ui.py
+index d024bcd..240fa64 100644
+--- a/src/infrastructure/web/routes_ui.py
++++ b/src/infrastructure/web/routes_ui.py
+@@ -20,7 +20,8 @@ def build_ui_router() -> APIRouter:
+     async def welcome(request: Request) -> HTMLResponse:
+         templates: Jinja2Templates = request.app.state.templates
+         products = [
+-            {"id": c.case_id, "label": c.label, "available": c.available} for c in all_cases()
++            {"id": c.case_id, "label": c.label, "available": c.available, "training_only": c.training_only}
++            for c in all_cases()
+         ]
+         return templates.TemplateResponse(request, "welcome.html", {"products": products})
+
+diff --git a/src/infrastructure/web/schemas.py b/src/infrastructure/web/schemas.py
+index 0d84758..7af3642 100644
+--- a/src/infrastructure/web/schemas.py
++++ b/src/infrastructure/web/schemas.py
+@@ -121,6 +121,7 @@ class CommandRequest(BaseModel):
+ class CtxOut(BaseModel):
+     employee_name: str
+     product_id: str
++    training_only: bool
+     completed_modes: list[str]
+     weak_zones_remaining: list[str]
+     cycle_count: int
+diff --git a/src/infrastructure/web/serializers.py b/src/infrastructure/web/serializers.py
+index 68bc818..fa9ba54 100644
+--- a/src/infrastructure/web/serializers.py
++++ b/src/infrastructure/web/serializers.py
+@@ -24,6 +24,7 @@ def serialize_ctx(ctx: SessionContext) -> CtxOut:
+     return CtxOut(
+         employee_name=ctx.employee_name,
+         product_id=ctx.product_id,
++        training_only=ctx.training_only,
+         completed_modes=sorted(m.value for m in ctx.completed_modes),
+         weak_zones_remaining=list(ctx.weak_zones_remaining),
+         cycle_count=ctx.cycle_count,
+diff --git a/src/infrastructure/web/templates/welcome.html b/src/infrastructure/web/templates/welcome.html
+index e574d44..ad6a256 100644
+--- a/src/infrastructure/web/templates/welcome.html
++++ b/src/infrastructure/web/templates/welcome.html
+@@ -48,7 +48,7 @@
+                         {% for p in products %}
+                         <option value="{{ p.id }}"
+                                 {% if p.available %}{% if loop.first %}selected{% endif %}{% else %}disabled{% endif %}>
+-                            {{ p.label }}{% if not p.available %} — скоро{% endif %}
++                            {{ p.label }}{% if not p.available %} — скоро{% endif %}{% if p.training_only %} (только обучение){% endif %}
+                         </option>
+                         {% endfor %}
+                     </select>

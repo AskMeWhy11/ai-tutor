@@ -28,6 +28,7 @@ __all__ = [
     "editable_case_ids",
     "invalidate_products_cache",
     "is_known_case",
+    "is_training_only",
     "is_valid_case_slug",
     "preza_file_for",
     "rename_product",
@@ -46,6 +47,10 @@ class CaseInfo:
     # label там, где в метке есть служебная часть (уровень курса и т.п.),
     # которую LLM может принять за свойство продукта. Пусто → берём label.
     product_name: str = ""
+    # Продукт поддерживает только режим TRAINING (наставник, теория).
+    # EXAMPLE / PRACTICE / KNOWLEDGE недоступны — нет контента кейса
+    # (диалоги, чек-лист) для ролевых режимов.
+    training_only: bool = False
 
     @property
     def prompt_name(self) -> str:
@@ -144,6 +149,7 @@ def all_cases() -> tuple[CaseInfo, ...]:
                 c,
                 label=str(ov.get("label") or c.label),
                 product_name=str(ov.get("product_name") or c.product_name),
+                training_only=bool(ov.get("training_only", c.training_only)),
             )
         out.append(c)
     builtin_ids = {c.case_id for c in CASE_REGISTRY}
@@ -159,12 +165,15 @@ def all_cases() -> tuple[CaseInfo, ...]:
                 label=str(entry.get("label") or cid),
                 available=True,
                 product_name=str(entry.get("product_name") or ""),
+                training_only=bool(entry.get("training_only", False)),
             )
         )
     return tuple(out)
 
 
-def create_product(case_id: str, label: str, product_name: str = "") -> CaseInfo:
+def create_product(
+    case_id: str, label: str, product_name: str = "", training_only: bool = False
+) -> CaseInfo:
     """Создать пользовательский продукт. ValueError при невалидном id/дубле."""
     if not is_valid_case_slug(case_id):
         raise ValueError(
@@ -178,16 +187,26 @@ def create_product(case_id: str, label: str, product_name: str = "") -> CaseInfo
     with _products_lock:
         raw = dict(_read_products_raw())
         custom = [e for e in raw.get("custom", []) if isinstance(e, dict)]
-        custom.append({"case_id": case_id, "label": label, "product_name": product_name.strip()})
+        custom.append(
+            {
+                "case_id": case_id,
+                "label": label,
+                "product_name": product_name.strip(),
+                "training_only": training_only,
+            }
+        )
         raw["custom"] = custom
         _write_products_raw(raw)
     return next(c for c in all_cases() if c.case_id == case_id)
 
 
-def rename_product(case_id: str, label: str, product_name: str = "") -> CaseInfo:
-    """Переименовать продукт (label + product_name). id — технический ключ,
-    не меняется: все связанные сущности (промпты, переменные, контент кейса,
-    ключи YAML-экспорта) привязаны к id и подхватывают новое имя автоматически.
+def rename_product(
+    case_id: str, label: str, product_name: str = "", training_only: bool | None = None
+) -> CaseInfo:
+    """Переименовать продукт (label + product_name) и/или обновить флаг training_only.
+    id — технический ключ, не меняется: все связанные сущности (промпты, переменные,
+    контент кейса, ключи YAML-экспорта) привязаны к id и подхватывают новое имя
+    автоматически.
     """
     label = label.strip()
     if not label:
@@ -198,11 +217,21 @@ def rename_product(case_id: str, label: str, product_name: str = "") -> CaseInfo
         raw = dict(_read_products_raw())
         if any(c.case_id == case_id for c in CASE_REGISTRY):
             overrides = dict(raw.get("overrides", {}))
-            overrides[case_id] = {"label": label, "product_name": product_name.strip()}
+            ov = dict(overrides.get(case_id, {}))
+            ov["label"] = label
+            ov["product_name"] = product_name.strip()
+            if training_only is not None:
+                ov["training_only"] = training_only
+            overrides[case_id] = ov
             raw["overrides"] = overrides
         else:
             raw["custom"] = [
-                {**e, "label": label, "product_name": product_name.strip()}
+                {
+                    **e,
+                    "label": label,
+                    "product_name": product_name.strip(),
+                    **({"training_only": training_only} if training_only is not None else {}),
+                }
                 if e.get("case_id") == case_id
                 else e
                 for e in raw.get("custom", [])
@@ -227,6 +256,11 @@ def editable_case_ids() -> tuple[str, ...]:
 
 def is_known_case(case_id: str) -> bool:
     return any(c.case_id == case_id for c in all_cases())
+
+
+def is_training_only(case_id: str) -> bool:
+    """True, если продукт поддерживает только режим TRAINING."""
+    return any(c.case_id == case_id and c.training_only for c in all_cases())
 
 
 def case_label(case_id: str) -> str:

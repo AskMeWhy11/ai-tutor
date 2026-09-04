@@ -63,6 +63,11 @@
                         <input type="text" name="product_name" value="{{ p.product_name }}"
                                placeholder="Имя для {PRODUCT_NAME} (пусто = название)"
                                aria-label="Имя темы для промптов {{ p.id }}" />
+                        <label class="admin-checkbox">
+                            <input type="checkbox" name="training_only" {% if p.training_only %}checked{% endif %}
+                                   aria-label="Только обучение (TRAINING)" />
+                            <span>Только обучение</span>
+                        </label>
                         <button type="submit" class="btn">Переименовать</button>
                     </form>
                     {% endfor %}
@@ -80,6 +85,11 @@
                                aria-label="Название нового продукта" />
                         <input type="text" name="product_name" placeholder="Имя для {PRODUCT_NAME} (опц.)"
                                aria-label="Имя темы для промптов" />
+                        <label class="admin-checkbox">
+                            <input type="checkbox" name="training_only"
+                                   aria-label="Только обучение (TRAINING)" />
+                            <span>Только обучение</span>
+                        </label>
                         <button type="submit" class="btn btn-primary">Создать</button>
                     </form>
                 </div>

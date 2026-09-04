@@ -15,6 +15,7 @@ const state = {
     currentState: null,
     availableCommands: [],
     knowledgeUnlocked: false,
+    trainingOnly: false,
     debug: false,
     recording: false,
 };
@@ -363,6 +364,7 @@ function applyServerState(data) {
     state.currentState = data.state;
     state.availableCommands = data.available_commands || [];
     state.knowledgeUnlocked = !!(data.ctx && data.ctx.knowledge_unlocked);
+    state.trainingOnly = !!(data.ctx && data.ctx.training_only);
 
     els.sessState.textContent = data.state;
     els.sessId.textContent = state.sessionId || "—";
@@ -434,21 +436,23 @@ function renderQuickActions() {
             els.quick.appendChild(makeBtn("Обучение", () =>
                 sendCommand({ type: "select_mode", mode: "training" }),
                         ));
-            els.quick.appendChild(makeBtn("Пример", () =>
-                sendCommand({ type: "select_mode", mode: "example" }),
-            ));
-            els.quick.appendChild(makeBtn("Практика", () =>
-                sendCommand({ type: "select_mode", mode: "practice" }),
-            ));
-            const knowBtn = makeBtn("Знания", () =>
-                sendCommand({ type: "select_mode", mode: "knowledge" }),
-            );
-            if (!state.knowledgeUnlocked) {
-                knowBtn.disabled = true;
-                knowBtn.classList.add("btn--locked");
-                knowBtn.title = "Открывается после неуспешной практики";
+            if (!state.trainingOnly) {
+                els.quick.appendChild(makeBtn("Пример", () =>
+                    sendCommand({ type: "select_mode", mode: "example" }),
+                ));
+                els.quick.appendChild(makeBtn("Практика", () =>
+                    sendCommand({ type: "select_mode", mode: "practice" }),
+                ));
+                const knowBtn = makeBtn("Знания", () =>
+                    sendCommand({ type: "select_mode", mode: "knowledge" }),
+                );
+                if (!state.knowledgeUnlocked) {
+                    knowBtn.disabled = true;
+                    knowBtn.classList.add("btn--locked");
+                    knowBtn.title = "Открывается после неуспешной практики";
+                }
+                els.quick.appendChild(knowBtn);
             }
-            els.quick.appendChild(knowBtn);
             continue;
         }
         els.quick.appendChild(makeBtn(cmd.label, () => {

@@ -23,12 +23,15 @@ __all__ = [
     "CaseContent",
     "case_dir",
     "default_case_dir",
+    "facts_path",
     "invalidate_case_cache",
     "load_case",
     "read_checklist_raw",
+    "read_facts_raw",
     "resolve_case_id",
     "restore_default",
     "write_checklist_raw",
+    "write_facts_raw",
 ]
 
 
@@ -76,6 +79,11 @@ def case_dir(case_id: str) -> Path:
 def default_case_dir(case_id: str) -> Path:
     """Путь к папке с дефолтными версиями файлов кейса."""
     return case_dir(case_id) / _DEFAULT_SUBDIR
+
+
+def facts_path(case_id: str) -> Path:
+    """Путь к facts.md конкретного кейса."""
+    return case_dir(case_id) / "facts.md"
 
 
 def _read_text(path: Path) -> str:
@@ -135,6 +143,53 @@ def load_case(case_id: str = "cc_novichok") -> CaseContent:
 def invalidate_case_cache(case_id: str | None = None) -> None:
     """Сбросить кэш load_case. Параметр оставлен для совместимости — сбрасываем целиком."""
     load_case.cache_clear()
+
+
+# ---------- Фактология: сырое чтение/запись для редактора ----------
+
+_MAX_FACTS_BYTES: int = 1 * 1024 * 1024  # 1 МБ
+
+
+def read_facts_raw(case_id: str) -> str:
+    """Прочитать facts.md «как есть».
+
+    Возвращает пустую строку, если файл не существует.
+    """
+    path = facts_path(case_id)
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        logger.warning("Не удалось прочитать facts.md для %s", case_id)
+        return ""
+
+
+def write_facts_raw(case_id: str, content: str) -> None:
+    """Сохранить facts.md без обязательной загрузки файла.
+
+    Принимает строку, проверяет размер при кодировании в UTF-8,
+    атомарно записывает через временный файл.
+
+    Raises:
+        ValueError: если размер превышает допустимый.
+    """
+    encoded = content.encode("utf-8")
+    if len(encoded) > _MAX_FACTS_BYTES:
+        raise ValueError(f"Содержимое превышает допустимый размер ({_MAX_FACTS_BYTES} байт)")
+    # Защита от path traversal: facts_path строится только из константы
+    # _CASES_DIR и проверенного case_id (регистрация через белый список).
+    path = facts_path(case_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".md.tmp")
+    try:
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    invalidate_case_cache(case_id)
+    logger.info("facts.md обновлён для %s (%d байт)", case_id, len(encoded))
 
 
 # ---------- Чек-лист: сырое чтение/запись для редактора ----------

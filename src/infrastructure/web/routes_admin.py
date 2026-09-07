@@ -15,8 +15,10 @@ from infrastructure.content.case_loader import (
     default_case_dir,
     invalidate_case_cache,
     read_checklist_raw,
+    read_facts_raw,
     restore_default,
     write_checklist_raw,
+    write_facts_raw,
 )
 from infrastructure.content.registry import (
     DEFAULT_CASE_ID,
@@ -286,6 +288,75 @@ def build_admin_router() -> list[APIRouter]:
         tags=["admin"],
         dependencies=[Depends(require_admin)],
     )
+
+    # ---------- Фактология: inline GET/PUT ----------
+
+    @router.get(
+        "/api/cases/{case_id}/facts",
+        response_class=PlainTextResponse,
+        summary="Получить содержимое facts.md",
+    )
+    def get_facts_inline(case_id: str) -> PlainTextResponse:
+        """Вернуть текущее содержимое facts.md продукта.
+
+        Доступно только администратору (require_admin в dependencies роутера).
+        Если файл не существует — возвращает 200 с пустым телом.
+        """
+        if case_id not in _allowed_cases():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Неизвестный продукт: {case_id!r}",
+            )
+        content = read_facts_raw(case_id)
+        return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
+
+    @router.put(
+        "/api/cases/{case_id}/facts",
+        status_code=status.HTTP_204_NO_CONTENT,
+        summary="Сохранить новое содержимое facts.md",
+    )
+    async def put_facts_inline(case_id: str, request: Request) -> None:
+        """Принять тело запроса как новое содержимое facts.md.
+
+        Ожидается тело в кодировке UTF-8 (text/plain или text/markdown).
+        Сохранение происходит без обязательной загрузки файла.
+
+        Защита:
+        - доступ только для администратора (require_admin в router);
+        - case_id проверяется по белому списку (нет path traversal);
+        - ограничение размера (_MAX_FACTS_BYTES в case_loader);
+        - тело должно быть корректным UTF-8.
+        """
+        if case_id not in _allowed_cases():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Неизвестный продукт: {case_id!r}",
+            )
+
+        body = await request.body()
+        if len(body) > 1 * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="Тело запроса превышает 1 МБ",
+            )
+
+        try:
+            text_content = body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Тело запроса должно быть в кодировке UTF-8",
+            ) from exc
+
+        try:
+            write_facts_raw(case_id, text_content)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+
+        logger.info("facts.md обновлён inline для %s (%d байт)", case_id, len(body))
 
     @router.get("/prompts", response_class=HTMLResponse)
     def get_prompts(

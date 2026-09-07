@@ -145,8 +145,36 @@
                                 Ограничение размера загружаемого файла — 1 МБ, кодировка UTF-8.
                             </p>
 
+                            {# ---- facts.md: инлайн-редактор ---- #}
+                            <div class="admin-card" id="facts-editor-card">
+                                <div class="admin-row">
+                                    <label class="admin-label" for="facts-textarea">facts.md — фактология</label>
+                                    <div class="admin-row-actions">
+                                        <a class="btn" href="/admin/case/{{ case_id }}/facts" download>Скачать</a>
+                                        {% if defaults_available.get("facts") %}
+                                        <form method="post" action="/admin/case/{{ case_id }}/facts/restore"
+                                            class="admin-inline-form"
+                                            onsubmit="return confirm('Восстановить facts.md из значения по умолчанию? Текущая версия будет перезаписана.');">
+                                            <button type="submit" class="btn btn-warn">Восстановить по
+                                                умолчанию</button>
+                                        </form>
+                                        {% else %}
+                                        <span class="admin-badge" title="Нет файла default/facts.md">нет
+                                            дефолта</span>
+                                        {% endif %}
+                                        <button type="button" class="btn" id="facts-save-btn"
+                                            data-case-id="{{ case_id }}"
+                                            aria-label="Сохранить фактологию">Сохранить</button>
+                                    </div>
+                                </div>
+                                <p class="admin-hint" id="facts-editor-status" aria-live="polite"></p>
+                                <textarea id="facts-textarea" class="admin-textarea--lg"
+                                    aria-label="Содержимое facts.md"
+                                    placeholder="Загрузка…" spellcheck="false"></textarea>
+                            </div>
+
+                            {# ---- dialogues.md / checklist.json ---- #}
                             {% for f in [
-                            {"key": "facts", "label": "facts.md — фактология", "filename": "facts.md"},
                             {"key": "dialogues", "label": "dialogues.md — образцовые диалоги", "filename":
                             "dialogues.md"},
                             {"key": "checklist", "label": "checklist.json — чек-лист (raw)", "filename":
@@ -414,6 +442,73 @@
             </form>
         </section>
     </main>
+    <script>
+    (function () {
+        "use strict";
+
+        var saveBtn  = document.getElementById("facts-save-btn");
+        var textarea = document.getElementById("facts-textarea");
+        var statusEl = document.getElementById("facts-editor-status");
+
+        if (!saveBtn || !textarea || !statusEl) { return; }
+
+        var caseId = saveBtn.dataset.caseId;
+        var apiUrl = "/admin/api/cases/" + encodeURIComponent(caseId) + "/facts";
+
+        function setStatus(msg, isError) {
+            statusEl.textContent = msg;
+            statusEl.style.color = isError ? "var(--danger, #b91c1c)" : "var(--fg-muted, #666)";
+        }
+
+        function loadFacts() {
+            textarea.placeholder = "Загрузка…";
+            textarea.disabled    = true;
+            setStatus("", false);
+            fetch(apiUrl, { credentials: "same-origin" })
+                .then(function (r) {
+                    if (!r.ok) { throw new Error("HTTP " + r.status); }
+                    return r.text();
+                })
+                .then(function (body) {
+                    textarea.value       = body;
+                    textarea.placeholder = "";
+                    textarea.disabled    = false;
+                })
+                .catch(function (err) {
+                    textarea.placeholder = "";
+                    textarea.disabled    = false;
+                    setStatus("Не удалось загрузить фактологию: " + err.message, true);
+                });
+        }
+
+        saveBtn.addEventListener("click", function () {
+            saveBtn.disabled = true;
+            setStatus("Сохранение…", false);
+            fetch(apiUrl, {
+                method:      "PUT",
+                credentials: "same-origin",
+                headers:     { "Content-Type": "text/plain; charset=utf-8" },
+                body:        textarea.value
+            })
+                .then(function (r) {
+                    if (!r.ok) {
+                        return r.text().then(function (t) {
+                            var msg = t;
+                            try { msg = JSON.parse(t).detail || t; } catch (e) {}
+                            throw new Error("HTTP " + r.status + ": " + msg);
+                        });
+                    }
+                    setStatus("Сохранено.", false);
+                })
+                .catch(function (err) {
+                    setStatus("Ошибка сохранения: " + err.message, true);
+                })
+                .finally(function () { saveBtn.disabled = false; });
+        });
+
+        loadFacts();
+    }());
+    </script>
 </body>
 
 </html>

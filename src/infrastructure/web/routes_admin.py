@@ -25,6 +25,7 @@ from infrastructure.content.registry import (
     all_cases,
     available_case_ids,
     create_product,
+    delete_product,
     rename_product,
 )
 from infrastructure.llm.prompt_store import (
@@ -641,6 +642,19 @@ def build_admin_router() -> list[APIRouter]:
         logger.info("Product renamed: %s -> %s", case_id, label)
         return RedirectResponse(
             url=f"/admin/prompts?case_id={case_id}&case_saved=product-renamed",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @router.post("/products/{case_id}/delete")
+    async def delete_product_route(case_id: str) -> RedirectResponse:
+        try:
+            delete_product(case_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        invalidate_case_cache()
+        logger.info("Product deleted: %s", case_id)
+        return RedirectResponse(
+            url="/admin/prompts?case_saved=product-deleted",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

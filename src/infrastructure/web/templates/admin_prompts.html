@@ -68,7 +68,14 @@
                                    aria-label="Только обучение (TRAINING)" />
                             <span>Только обучение</span>
                         </label>
-                        <button type="submit" class="btn">Применить изменения</button>
+                        <div class="admin-product-actions">
+                            <button type="submit" class="btn">Применить изменения</button>
+                            <button type="submit"
+                                    formaction="/admin/products/{{ p.id }}/delete"
+                                    formmethod="post"
+                                    class="btn btn-warn"
+                                    onclick="return confirm('Удалить продукт «{{ p.label }}»? Это действие нельзя отменить.');">Удалить</button>
+                        </div>
                     </form>
                     {% endfor %}
                 </div>

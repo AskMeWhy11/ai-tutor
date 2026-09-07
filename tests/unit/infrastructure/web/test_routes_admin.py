@@ -536,6 +536,66 @@ def test_rename_unknown_product_400(auth_client: TestClient, products_file: Path
     assert res.status_code == 400
 
 
+def test_delete_product_route_requires_auth(client: TestClient) -> None:
+    assert client.post("/admin/products/xpv/delete").status_code == 401
+
+
+def test_delete_builtin_product_soft_delete(
+    auth_client: TestClient,
+    products_file: Path,
+) -> None:
+    from infrastructure.content.registry import all_cases, available_case_ids, is_known_case
+
+    assert "xpv" in available_case_ids()
+    assert is_known_case("xpv")
+
+    res = auth_client.post("/admin/products/xpv/delete", follow_redirects=False)
+    assert res.status_code == 303
+    assert "product-deleted" in res.headers["location"]
+
+    # Продукт скрыт из available
+    assert "xpv" not in available_case_ids()
+    # Но известен (soft delete — остаётся в all_cases)
+    assert is_known_case("xpv")
+    assert any(c.case_id == "xpv" and c.deleted for c in all_cases())
+
+
+def test_delete_custom_product_hard_delete(
+    auth_client: TestClient,
+    products_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from infrastructure.content.registry import available_case_ids, is_known_case
+
+    fake_cases = tmp_path / "cases"
+    fake_cases.mkdir()
+    monkeypatch.setattr(case_loader, "_CASES_DIR", fake_cases)
+
+    # Создаём custom продукт
+    auth_client.post(
+        "/admin/products/create",
+        data={"case_id": "deposit_pro", "label": "Вклад Про"},
+        follow_redirects=False,
+    )
+    assert "deposit_pro" in available_case_ids()
+
+    # Удаляем
+    res = auth_client.post("/admin/products/deposit_pro/delete", follow_redirects=False)
+    assert res.status_code == 303
+
+    assert "deposit_pro" not in available_case_ids()
+    assert not is_known_case("deposit_pro")  # полностью удалён
+
+
+def test_delete_unknown_product_returns_400(
+    auth_client: TestClient,
+    products_file: Path,
+) -> None:
+    res = auth_client.post("/admin/products/no_such_product/delete", follow_redirects=False)
+    assert res.status_code == 400
+
+
 def test_export_yaml_requires_auth(client: TestClient) -> None:
     res = client.get("/admin/case/cc_novichok/export/prompts", follow_redirects=False)
     assert res.status_code == 303

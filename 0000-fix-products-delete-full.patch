@@ -1,0 +1,213 @@
+diff --git a/src/infrastructure/content/registry.py b/src/infrastructure/content/registry.py
+index e89d6cf..622cd5a 100644
+--- a/src/infrastructure/content/registry.py
++++ b/src/infrastructure/content/registry.py
+@@ -25,6 +25,7 @@ __all__ = [
+     "case_label",
+     "case_product_name",
+     "create_product",
++    "delete_product",
+     "editable_case_ids",
+     "invalidate_products_cache",
+     "is_known_case",
+@@ -51,6 +52,9 @@ class CaseInfo:
+     # EXAMPLE / PRACTICE / KNOWLEDGE недоступны — нет контента кейса
+     # (диалоги, чек-лист) для ролевых режимов.
+     training_only: bool = False
++    # Пометка удаления (soft delete): продукт скрыт из available_case_ids,
++    # но id остаётся в исторических данных сессий.
++    deleted: bool = False
+
+     @property
+     def prompt_name(self) -> str:
+@@ -150,6 +154,7 @@ def all_cases() -> tuple[CaseInfo, ...]:
+                 label=str(ov.get("label") or c.label),
+                 product_name=str(ov.get("product_name") or c.product_name),
+                 training_only=bool(ov.get("training_only", c.training_only)),
++                deleted=bool(ov.get("deleted", False)),
+             )
+         out.append(c)
+     builtin_ids = {c.case_id for c in CASE_REGISTRY}
+@@ -166,6 +171,7 @@ def all_cases() -> tuple[CaseInfo, ...]:
+                 available=True,
+                 product_name=str(entry.get("product_name") or ""),
+                 training_only=bool(entry.get("training_only", False)),
++                deleted=bool(entry.get("deleted", False)),
+             )
+         )
+     return tuple(out)
+@@ -241,17 +247,49 @@ def rename_product(
+     return next(c for c in all_cases() if c.case_id == case_id)
+
+
++
++def delete_product(case_id: str) -> None:
++    """Удалить продукт.
++
++    - Встроенный (из CASE_REGISTRY) -> soft delete: ставим {deleted: true} в overrides.
++      Продукт исчезает из available_case_ids, но case_id остаётся в истории.
++    - Пользовательский (custom) -> hard delete: убираем из списка custom.
++    - Неизвестный case_id -> ValueError.
++    """
++    if not is_known_case(case_id):
++        raise ValueError(f"Неизвестный продукт {case_id!r}")
++
++    with _products_lock:
++        raw = dict(_read_products_raw())
++
++        if any(c.case_id == case_id for c in CASE_REGISTRY):
++            # Soft delete для встроенного
++            overrides = dict(raw.get("overrides", {}))
++            ov = dict(overrides.get(case_id, {}))
++            ov["deleted"] = True
++            overrides[case_id] = ov
++            raw["overrides"] = overrides
++        else:
++            # Hard delete для custom
++            raw["custom"] = [
++                e for e in raw.get("custom", [])
++                if isinstance(e, dict) and e.get("case_id") != case_id
++            ]
++
++        _write_products_raw(raw)
++
++
+ # ----------------------------------------------------------------------
+ # Публичные lookup-функции (поверх all_cases)
+ # ----------------------------------------------------------------------
+
+
+ def available_case_ids() -> frozenset[str]:
+-    return frozenset(c.case_id for c in all_cases() if c.available)
++    return frozenset(c.case_id for c in all_cases() if c.available and not c.deleted)
+
+
+ def editable_case_ids() -> tuple[str, ...]:
+-    return tuple(c.case_id for c in all_cases() if c.available)
++    return tuple(c.case_id for c in all_cases() if c.available and not c.deleted)
+
+
+ def is_known_case(case_id: str) -> bool:
+diff --git a/src/infrastructure/web/routes_admin.py b/src/infrastructure/web/routes_admin.py
+index c8c13b0..b3c1c38 100644
+--- a/src/infrastructure/web/routes_admin.py
++++ b/src/infrastructure/web/routes_admin.py
+@@ -25,6 +25,7 @@ from infrastructure.content.registry import (
+     all_cases,
+     available_case_ids,
+     create_product,
++    delete_product,
+     rename_product,
+ )
+ from infrastructure.llm.prompt_store import (
+@@ -644,6 +645,19 @@ def build_admin_router() -> list[APIRouter]:
+             status_code=status.HTTP_303_SEE_OTHER,
+         )
+
++    @router.post("/products/{case_id}/delete")
++    async def delete_product_route(case_id: str) -> RedirectResponse:
++        try:
++            delete_product(case_id)
++        except ValueError as exc:
++            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
++        invalidate_case_cache()
++        logger.info("Product deleted: %s", case_id)
++        return RedirectResponse(
++            url="/admin/prompts?case_saved=product-deleted",
++            status_code=status.HTTP_303_SEE_OTHER,
++        )
++
+     @router.get("/case/{case_id}/export/{kind}")
+     def export_case_yaml(case_id: str, kind: str, request: Request) -> PlainTextResponse:
+         if case_id not in _allowed_cases():
+diff --git a/src/infrastructure/web/templates/admin_prompts.html b/src/infrastructure/web/templates/admin_prompts.html
+index 910d09a..826331a 100644
+--- a/src/infrastructure/web/templates/admin_prompts.html
++++ b/src/infrastructure/web/templates/admin_prompts.html
+@@ -68,7 +68,14 @@
+                                    aria-label="Только обучение (TRAINING)" />
+                             <span>Только обучение</span>
+                         </label>
+-                        <button type="submit" class="btn">Применить изменения</button>
++                        <div class="admin-product-actions">
++                            <button type="submit" class="btn">Применить изменения</button>
++                            <button type="submit"
++                                    formaction="/admin/products/{{ p.id }}/delete"
++                                    formmethod="post"
++                                    class="btn btn-warn"
++                                    onclick="return confirm('Удалить продукт «{{ p.label }}»? Это действие нельзя отменить.');">Удалить</button>
++                        </div>
+                     </form>
+                     {% endfor %}
+                 </div>
+diff --git a/tests/unit/infrastructure/web/test_routes_admin.py b/tests/unit/infrastructure/web/test_routes_admin.py
+index 8cfb168..614dd5d 100644
+--- a/tests/unit/infrastructure/web/test_routes_admin.py
++++ b/tests/unit/infrastructure/web/test_routes_admin.py
+@@ -536,6 +536,66 @@ def test_rename_unknown_product_400(auth_client: TestClient, products_file: Path
+     assert res.status_code == 400
+
+
++
++def test_delete_product_route_requires_auth(client: TestClient) -> None:
++    assert client.post("/admin/products/xpv/delete").status_code == 401
++
++
++def test_delete_builtin_product_soft_delete(
++    auth_client: TestClient,
++    products_file: Path,
++) -> None:
++    from infrastructure.content.registry import all_cases, available_case_ids, is_known_case
++
++    assert "xpv" in available_case_ids()
++    assert is_known_case("xpv")
++
++    res = auth_client.post("/admin/products/xpv/delete", follow_redirects=False)
++    assert res.status_code == 303
++    assert "product-deleted" in res.headers["location"]
++
++    # Продукт скрыт из available
++    assert "xpv" not in available_case_ids()
++    # Но известен (soft delete — остаётся в all_cases)
++    assert is_known_case("xpv")
++    assert any(c.case_id == "xpv" and c.deleted for c in all_cases())
++
++
++def test_delete_custom_product_hard_delete(
++    auth_client: TestClient,
++    products_file: Path,
++    monkeypatch: pytest.MonkeyPatch,
++    tmp_path: Path,
++) -> None:
++    from infrastructure.content.registry import available_case_ids, is_known_case
++
++    fake_cases = tmp_path / "cases"
++    fake_cases.mkdir()
++    monkeypatch.setattr(case_loader, "_CASES_DIR", fake_cases)
++
++    # Создаём custom продукт
++    auth_client.post(
++        "/admin/products/create",
++        data={"case_id": "deposit_pro", "label": "Вклад Про"},
++        follow_redirects=False,
++    )
++    assert "deposit_pro" in available_case_ids()
++
++    # Удаляем
++    res = auth_client.post("/admin/products/deposit_pro/delete", follow_redirects=False)
++    assert res.status_code == 303
++
++    assert "deposit_pro" not in available_case_ids()
++    assert not is_known_case("deposit_pro")  # полностью удалён
++
++
++def test_delete_unknown_product_returns_400(
++    auth_client: TestClient,
++    products_file: Path,
++) -> None:
++    res = auth_client.post("/admin/products/no_such_product/delete", follow_redirects=False)
++    assert res.status_code == 400
++
+ def test_export_yaml_requires_auth(client: TestClient) -> None:
+     res = client.get("/admin/case/cc_novichok/export/prompts", follow_redirects=False)
+     assert res.status_code == 303

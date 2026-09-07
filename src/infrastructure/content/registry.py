@@ -25,6 +25,7 @@ __all__ = [
     "case_label",
     "case_product_name",
     "create_product",
+    "delete_product",
     "editable_case_ids",
     "invalidate_products_cache",
     "is_known_case",
@@ -51,6 +52,9 @@ class CaseInfo:
     # EXAMPLE / PRACTICE / KNOWLEDGE недоступны — нет контента кейса
     # (диалоги, чек-лист) для ролевых режимов.
     training_only: bool = False
+    # Пометка удаления (soft delete): продукт скрыт из available_case_ids,
+    # но id остаётся в исторических данных сессий.
+    deleted: bool = False
 
     @property
     def prompt_name(self) -> str:
@@ -150,6 +154,7 @@ def all_cases() -> tuple[CaseInfo, ...]:
                 label=str(ov.get("label") or c.label),
                 product_name=str(ov.get("product_name") or c.product_name),
                 training_only=bool(ov.get("training_only", c.training_only)),
+                deleted=bool(ov.get("deleted", False)),
             )
         out.append(c)
     builtin_ids = {c.case_id for c in CASE_REGISTRY}
@@ -166,6 +171,7 @@ def all_cases() -> tuple[CaseInfo, ...]:
                 available=True,
                 product_name=str(entry.get("product_name") or ""),
                 training_only=bool(entry.get("training_only", False)),
+                deleted=bool(entry.get("deleted", False)),
             )
         )
     return tuple(out)
@@ -241,17 +247,49 @@ def rename_product(
     return next(c for c in all_cases() if c.case_id == case_id)
 
 
+def delete_product(case_id: str) -> None:
+    """Удалить продукт.
+
+    - Встроенный (из CASE_REGISTRY) -> soft delete: ставим {deleted: true} в overrides.
+      Продукт исчезает из available_case_ids, но case_id остаётся в истории.
+    - Пользовательский (custom) -> hard delete: убираем из списка custom.
+    - Неизвестный case_id -> ValueError.
+    """
+    if not is_known_case(case_id):
+        raise ValueError(f"Неизвестный продукт {case_id!r}")
+
+    with _products_lock:
+        raw = dict(_read_products_raw())
+
+        if any(c.case_id == case_id for c in CASE_REGISTRY):
+            # Soft delete для встроенного
+            overrides = dict(raw.get("overrides", {}))
+            ov = dict(overrides.get(case_id, {}))
+            ov["deleted"] = True
+            overrides[case_id] = ov
+            raw["overrides"] = overrides
+        else:
+            # Hard delete для custom
+            raw["custom"] = [
+                e
+                for e in raw.get("custom", [])
+                if isinstance(e, dict) and e.get("case_id") != case_id
+            ]
+
+        _write_products_raw(raw)
+
+
 # ----------------------------------------------------------------------
 # Публичные lookup-функции (поверх all_cases)
 # ----------------------------------------------------------------------
 
 
 def available_case_ids() -> frozenset[str]:
-    return frozenset(c.case_id for c in all_cases() if c.available)
+    return frozenset(c.case_id for c in all_cases() if c.available and not c.deleted)
 
 
 def editable_case_ids() -> tuple[str, ...]:
-    return tuple(c.case_id for c in all_cases() if c.available)
+    return tuple(c.case_id for c in all_cases() if c.available and not c.deleted)
 
 
 def is_known_case(case_id: str) -> bool:

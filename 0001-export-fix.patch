@@ -1,0 +1,65 @@
+--- a/src/infrastructure/llm/yaml_export.py
++++ b/src/infrastructure/llm/yaml_export.py
+@@ -37,22 +37,49 @@ def _block_scalar(text: str, indent: str = "      ") -> str:
+ def export_prompts_yaml(store: PromptStore, case_id: str) -> str:
+     """prompts.map выбранного кейса: актуальные (отредактированные) тексты.
+
+     Критерии судьи стадии (learning-check) каждого режима встроены внутрь
+     промптовога блока своего режима — отдельной общей секции нет.
+     """
+     snap = store.snapshot(case_id)
+     slug = case_slug(case_id)
+
+     def with_criteria(mode: Mode) -> str:
+         return embed_stage_criteria(
+             snap.mode_prompts.get(mode, ""),
+             snap.stage_director_prompts.get(mode, ""),
+             slug,
+         )
+
+-    entries: tuple[tuple[str, str], ...] = (
+-        (f"{slug}-learning-transcription-prompt", with_criteria(Mode.TRAINING)),
+-        (f"{slug}-client-transcription-prompt", with_criteria(Mode.EXAMPLE)),
+-        (f"{slug}-employee-transcription-prompt", with_criteria(Mode.PRACTICE)),
+-        (f"{slug}-mentor-transcription-prompt", with_criteria(Mode.KNOWLEDGE)),
++    # Порядок ключей строго по эталону (golden standard)
++    entries: tuple[tuple[str, str], ...] = (
++        (f"{slug}-start-notification-prompt",
++         snap.start_notification_prompt),
++        (f"{slug}-client-check-sales-prompt",
++         snap.client_check_sales_prompt),
++        (f"{slug}-employee-check-sales-prompt",
++         snap.employee_check_sales_prompt),
++        (f"{slug}-mentor-dialogue-completed-prompt",
++         snap.mentor_dialogue_completed_prompt),
++        (f"{slug}-client-transcription-prompt",
++         with_criteria(Mode.EXAMPLE)),
++        (f"{slug}-employee-transcription-prompt",
++         with_criteria(Mode.PRACTICE)),
++        (f"{slug}-mentor-transcription-prompt",
++         with_criteria(Mode.KNOWLEDGE)),
++        (f"{slug}-finish-notification-result-message-prompt",
++         snap.finish_notification_result_message_prompt),
++        (f"{slug}-finish-notification-result-checklist-user-prompt",
++         snap.finish_notification_result_checklist_user_prompt),
++        (f"{slug}-finish-notification-result-checklist-system-prompt",
++         snap.finish_notification_result_checklist_system_prompt),
+         (
+             f"{slug}-create-customer-profile-system-prompt",
+             snap.customer_profile_system_prompt,
+         ),
+-        (f"{slug}-create-customer-profile-user-prompt", snap.customer_profile_user_prompt),
++        (f"{slug}-create-customer-profile-user-prompt",
++         snap.customer_profile_user_prompt),
+     )
+     out: list[str] = ["prompts:", "  map:"]
+     for key, text in entries:
+@@ -63,6 +90,6 @@ def export_prompts_yaml(store: PromptStore, case_id: str) -> str:
+ def export_variables_yaml(case_id: str) -> str:
+     """variables.map выбранного кейса: значения из контента (facts/dialogues/)."""
+     out: list[str] = ["variables:", "  map:"]
+     for key in VARIABLES_MAP:
+         value = resolve_variable(key, case_id)
+-        # Однострочная строка в двойных кавычках с \\n — как в эталоне.
++        # Одностр. строка в двойных кавычках с \\n — как в эталоне.
+         out.append(f"    {key}: {json.dumps(value, ensure_ascii=False)}")

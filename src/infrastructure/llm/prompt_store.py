@@ -20,10 +20,17 @@ from domain.states import FSMState, Mode
 from infrastructure.content.registry import DEFAULT_CASE_ID, editable_case_ids
 from infrastructure.llm.content_render import LEGACY_PLACEHOLDERS, apply_profile, render_prompt
 from infrastructure.llm.default_prompts import (
+    default_client_check_sales_prompt,
     default_customer_profile_system_prompt,
     default_customer_profile_user_prompt,
+    default_employee_check_sales_prompt,
+    default_finish_notification_result_checklist_system_prompt,
+    default_finish_notification_result_checklist_user_prompt,
+    default_finish_notification_result_message_prompt,
+    default_mentor_dialogue_completed_prompt,
     default_mode_prompts,
     default_stage_director_prompts,
+    default_start_notification_prompt,
 )
 
 __all__ = [
@@ -115,6 +122,13 @@ class PromptSnapshot:
     stage_director_prompts: dict[Mode, str] = field(default_factory=dict)
     customer_profile_system_prompt: str = ""
     customer_profile_user_prompt: str = ""
+    start_notification_prompt: str = ""
+    client_check_sales_prompt: str = ""
+    employee_check_sales_prompt: str = ""
+    mentor_dialogue_completed_prompt: str = ""
+    finish_notification_result_message_prompt: str = ""
+    finish_notification_result_checklist_user_prompt: str = ""
+    finish_notification_result_checklist_system_prompt: str = ""
     case_id: str = DEFAULT_CASE_ID
 
 
@@ -124,6 +138,13 @@ class _CaseBundle:
     stage_director_prompts: dict[Mode, str]
     customer_profile_system_prompt: str = ""
     customer_profile_user_prompt: str = ""
+    start_notification_prompt: str = ""
+    client_check_sales_prompt: str = ""
+    employee_check_sales_prompt: str = ""
+    mentor_dialogue_completed_prompt: str = ""
+    finish_notification_result_message_prompt: str = ""
+    finish_notification_result_checklist_user_prompt: str = ""
+    finish_notification_result_checklist_system_prompt: str = ""
     # Активный сгенерированный профиль клиента ({CLIENT_*} для PRACTICE).
     # Обновляется при каждом старте практики, переиспользуется внутри сессии.
     customer_profile: dict[str, str] | None = None
@@ -302,6 +323,31 @@ class PromptStore:
                 ),
                 customer_profile_user_prompt=(
                     bundle.customer_profile_user_prompt or default_customer_profile_user_prompt(cid)
+                ),
+                start_notification_prompt=(
+                    bundle.start_notification_prompt or default_start_notification_prompt(cid)
+                ),
+                client_check_sales_prompt=(
+                    bundle.client_check_sales_prompt or default_client_check_sales_prompt(cid)
+                ),
+                employee_check_sales_prompt=(
+                    bundle.employee_check_sales_prompt or default_employee_check_sales_prompt(cid)
+                ),
+                mentor_dialogue_completed_prompt=(
+                    bundle.mentor_dialogue_completed_prompt
+                    or default_mentor_dialogue_completed_prompt(cid)
+                ),
+                finish_notification_result_message_prompt=(
+                    bundle.finish_notification_result_message_prompt
+                    or default_finish_notification_result_message_prompt(cid)
+                ),
+                finish_notification_result_checklist_user_prompt=(
+                    bundle.finish_notification_result_checklist_user_prompt
+                    or default_finish_notification_result_checklist_user_prompt(cid)
+                ),
+                finish_notification_result_checklist_system_prompt=(
+                    bundle.finish_notification_result_checklist_system_prompt
+                    or default_finish_notification_result_checklist_system_prompt(cid)
                 ),
                 case_id=cid,
             )

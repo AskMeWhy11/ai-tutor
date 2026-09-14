@@ -127,32 +127,17 @@ def test_embed_stage_criteria_format() -> None:
     assert embed_stage_criteria("MODE PROMPT", "  ", "x") == "MODE PROMPT"
 
 
-def test_export_embeds_criteria_per_mode_no_common_section(tmp_path: Path) -> None:
+def test_export_keeps_director_outside_generation(tmp_path: Path) -> None:
     store = PromptStore(tmp_path / "prompts.json")
     store.replace_all(
         system_prompt="",
         templates={},
-        stage_director_prompts={
-            Mode.TRAINING: "SD-T",
-            Mode.EXAMPLE: "SD-E",
-            Mode.PRACTICE: "SD-P",
-            Mode.KNOWLEDGE: "SD-K",
-        },
+        stage_director_prompts=dict.fromkeys(Mode, "DIRECTOR_ONLY"),
         case_id=DEFAULT_CASE_ID,
     )
     out = export_prompts_yaml(store, DEFAULT_CASE_ID)
-    # Отдельного общего ключа нет.
-    assert "-learning-check-prompt:" not in out
-
-    def block(key: str) -> str:
-        start = out.index(f"    {key}: |")
-        rest = out[start + len(key) + 7 :]
-        nxt = rest.find(": |")
-        return rest[: nxt if nxt != -1 else len(rest)]
-
-    assert "SD-T" in block("cc-novichok-learning-transcription-prompt")
-    assert "SD-E" in block("cc-novichok-client-transcription-prompt")
-    assert "SD-P" in block("cc-novichok-employee-transcription-prompt")
-    assert "SD-K" in block("cc-novichok-mentor-transcription-prompt")
-    # Критерии не перепутаны между режимами.
-    assert "SD-P" not in block("cc-novichok-learning-transcription-prompt")
+    assert "DIRECTOR_ONLY" not in out
+    assert "КРИТЕРИИ ЗАВЕРШЕНИЯ СТАДИИ" not in out
+    assert "cc-novichok-client-check-sales-prompt:" in out
+    assert "cc-novichok-employee-check-sales-prompt:" in out
+    assert "cc-novichok-mentor-dialogue-completed-prompt:" in out

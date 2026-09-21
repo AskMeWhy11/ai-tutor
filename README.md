@@ -359,6 +359,29 @@ poetry run pytest --cov=src --cov-report=term-missing
 
 ---
 
+## Как запулить очередной коммит на сервак и не проебать все продукты
+
+Просто ввести:
+```bash
+# 1. Бэкап cases/ из работающего контейнера (products.json + факты/диалоги/чек-листы всех кейсов)
+docker cp ai-tutor-app:/app/src/infrastructure/content/cases /tmp/cases_backup
+
+# 2. Pull + пересборка
+git pull
+docker compose build && docker compose up -d
+
+# 3. Восстановить cases/ обратно (мерджит: git-новинки остаются, рантайм-данные возвращаются)
+docker cp /tmp/cases_backup/. ai-tutor-app:/app/src/infrastructure/content/cases/
+
+# 4. Перезапустить чтобы приложение перечитало файлы
+docker compose restart app
+
+# 5. Проверить
+docker exec ai-tutor-app cat /app/src/infrastructure/content/cases/products.json
+```
+
+---
+
 ## Документация
 
 | Документ | Содержание |

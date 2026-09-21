@@ -588,6 +588,58 @@ def test_delete_custom_product_hard_delete(
     assert not is_known_case("deposit_pro")  # полностью удалён
 
 
+def test_deleted_product_hidden_from_admin_products_list(
+    auth_client: TestClient,
+    products_file: Path,
+) -> None:
+    """Список «Существующие продукты» не должен показывать удалённый продукт."""
+    page = auth_client.get("/admin/prompts")
+    assert page.status_code == 200
+    assert "/admin/products/xpv/rename" in page.text
+
+    auth_client.post("/admin/products/xpv/delete", follow_redirects=False)
+
+    page = auth_client.get("/admin/prompts")
+    assert page.status_code == 200
+    assert "/admin/products/xpv/rename" not in page.text
+    # Остальные продукты на месте.
+    assert "/admin/products/spin/rename" in page.text
+
+
+def test_deleted_product_hidden_from_welcome_page(
+    auth_client: TestClient,
+    products_file: Path,
+) -> None:
+    """Селектор на главной должен совпадать с тем, что принимает валидация."""
+    page = auth_client.get("/")
+    assert page.status_code == 200
+    assert '<option value="xpv"' in page.text
+
+    auth_client.post("/admin/products/xpv/delete", follow_redirects=False)
+
+    page = auth_client.get("/")
+    assert page.status_code == 200
+    assert '<option value="xpv"' not in page.text
+    assert '<option value="spin"' in page.text
+
+
+def test_welcome_options_match_session_validation(
+    auth_client: TestClient,
+    products_file: Path,
+) -> None:
+    """Продукт из селектора главной обязан приниматься созданием сессии."""
+    auth_client.post("/admin/products/xpv/delete", follow_redirects=False)
+
+    page = auth_client.get("/")
+    assert '<option value="xpv"' not in page.text
+
+    res = auth_client.post(
+        "/api/sessions",
+        json={"product_id": "xpv", "employee_name": "Анна"},
+    )
+    assert res.status_code == 422
+
+
 def test_delete_unknown_product_returns_400(
     auth_client: TestClient,
     products_file: Path,

@@ -93,7 +93,7 @@ def _products_view() -> list[dict[str, Any]]:
             "training_only": c.training_only,
         }
         for c in all_cases()
-        if c.available
+        if c.available and not c.deleted
     ]
 
 

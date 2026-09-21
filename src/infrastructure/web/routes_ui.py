@@ -10,7 +10,12 @@ from fastapi.templating import Jinja2Templates
 
 from application.ports.session_store import SessionStore
 from infrastructure.content.case_loader import resolve_case_id
-from infrastructure.content.registry import DEFAULT_CASE_ID, all_cases, preza_file_for
+from infrastructure.content.registry import (
+    DEFAULT_CASE_ID,
+    all_cases,
+    available_case_ids,
+    preza_file_for,
+)
 
 
 def build_ui_router() -> APIRouter:
@@ -19,6 +24,9 @@ def build_ui_router() -> APIRouter:
     @router.get("/", response_class=HTMLResponse)
     async def welcome(request: Request) -> HTMLResponse:
         templates: Jinja2Templates = request.app.state.templates
+        # Тот же набор, что принимает валидация product_id в schemas.py:
+        # иначе удалённый продукт остаётся в списке и выбор падает с 422.
+        allowed = available_case_ids()
         products = [
             {
                 "id": c.case_id,
@@ -27,6 +35,7 @@ def build_ui_router() -> APIRouter:
                 "training_only": c.training_only,
             }
             for c in all_cases()
+            if c.case_id in allowed
         ]
         return templates.TemplateResponse(request, "welcome.html", {"products": products})
 

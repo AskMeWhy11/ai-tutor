@@ -1,0 +1,252 @@
+diff --git a/src/infrastructure/llm/content_render.py b/src/infrastructure/llm/content_render.py
+index 57014f1..1b830a3 100644
+--- a/src/infrastructure/llm/content_render.py
++++ b/src/infrastructure/llm/content_render.py
+@@ -25,6 +25,7 @@ __all__ = [
+     "apply_profile",
+     "apply_step",
+     "render_prompt",
++    "strip_emotion_tags",
+     "strip_markdown_emphasis",
+ ]
+
+@@ -86,6 +87,19 @@ def strip_markdown_emphasis(text: str) -> str:
+     return text
+
+
++# Эмоции ставит модель тегами [sad]/[neutral]/[happy]/[annoyed]: они нужны
++# сценарию реплики, но в интерфейс попадать не должны — рантайм их не разбирает.
++_EMOTION_TAG_PATTERN: Final[re.Pattern[str]] = re.compile(
++    r"\[(?:sad|neutral|happy|annoyed)\]", re.IGNORECASE
++)
++
++
++def strip_emotion_tags(text: str) -> str:
++    """Убрать служебные теги эмоций из реплики перед показом сотруднику."""
++    cleaned = _EMOTION_TAG_PATTERN.sub("", text)
++    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
++
++
+ def _variable_key(placeholder: str) -> str:
+     canonical = LEGACY_PLACEHOLDERS.get(placeholder, placeholder)
+     return canonical.lower().replace("_", "-")
+diff --git a/src/infrastructure/llm/default_prompts.py b/src/infrastructure/llm/default_prompts.py
+index 4e85f32..a28a2fc 100644
+--- a/src/infrastructure/llm/default_prompts.py
++++ b/src/infrastructure/llm/default_prompts.py
+@@ -188,6 +188,23 @@ _EXAMPLE_TEMPLATE: Final[str] = """\
+ {REAL_DIALOGUES}
+
+ СТАРТ: начни диалог с короткого приветствия и первого шага согласно теме.
++ОГРАНИЧЕНИЕ ПО КОЛИЧЕСТВУ ВОЗРАЖЕНИЙ:
++Собеседник может отказать не более 3 раз подряд. После третьего отказа заверши
++диалог финальной фразой, содержащей «Тренировка завершена».
++
++ЕСТЕСТВЕННОСТЬ:
++Реплика короткая и разговорная, без markdown и лишних символов. Не зачитывай
++материал списком — веди живой диалог.
++
++УХОД НА ДРУГИЕ ТЕМЫ:
++В первый раз мягко верни собеседника к теме обращения. Во второй раз заверши
++диалог.
++
++TRASH TALK:
++1. На нецензурную лексику попроси вести разговор уважительно. Повторная
++   грубость — заверши диалог.
++2. Если собеседник пишет на другом языке — попроси перейти на русский.
++3. Не возобновляй диалог после окончательного отказа собеседника.
+ """
+
+ # Вариант EXAMPLE для продуктов-техник продаж (SPIN/ПУСК/AIDA/ХПВ/
+@@ -226,6 +243,23 @@ _EXAMPLE_TEMPLATE_TECHNIQUE: Final[str] = """\
+
+ СТАРТ: коротко поздоровайся как продавец и начни с ПЕРВОГО этапа техники
+ на выбранном продукте.
++ОГРАНИЧЕНИЕ ПО КОЛИЧЕСТВУ ВОЗРАЖЕНИЙ:
++Собеседник может отказать не более 3 раз подряд. После третьего отказа заверши
++диалог финальной фразой, содержащей «Тренировка завершена».
++
++ЕСТЕСТВЕННОСТЬ:
++Реплика короткая и разговорная, без markdown и лишних символов. Не зачитывай
++материал списком — веди живой диалог.
++
++УХОД НА ДРУГИЕ ТЕМЫ:
++В первый раз мягко верни собеседника к теме обращения. Во второй раз заверши
++диалог.
++
++TRASH TALK:
++1. На нецензурную лексику попроси вести разговор уважительно. Повторная
++   грубость — заверши диалог.
++2. Если собеседник пишет на другом языке — попроси перейти на русский.
++3. Не возобновляй диалог после окончательного отказа собеседника.
+ """
+
+
+@@ -264,6 +298,32 @@ _PRACTICE_TEMPLATE: Final[str] = """\
+ {REAL_DIALOGUES}
+
+ СТАРТ: коротко, как живой собеседник, обозначь свою ситуацию — без деталей.
++ОГРАНИЧЕНИЕ ПО ДЛИНЕ ДИАЛОГА:
++С твоей стороны должно быть не более 50 реплик (возражений или уточняющих
++вопросов). После этого диалог завершается.
++
++ЗАВЕРШЕНИЕ ДИАЛОГА:
++Если сотрудник качественно задал уточняющие вопросы, привёл аргументы и примеры,
++отработал твои сомнения и возражения — согласись с предложением. В тексте
++сообщения сразу после своей реплики дополнительно выведи фразу:
++«Вы справились с задачей! Тренировка завершена»
++Если ты уже согласился или окончательно отказался и прозвучала фраза
++«Тренировка завершена» — больше не отвечай и не возобновляй диалог.
++
++ЭМОЦИИ:
++В начале каждой своей реплики ставь один тег эмоции:
++- [sad] — когда тебя расстроили, отказали или проигнорировали твою просьбу;
++- [neutral] — обычное деловое общение, уточняющие вопросы;
++- [happy] — когда сотрудник помог, объяснил понятно и ты согласился;
++- [annoyed] — когда сотрудник давит, повторяется или уходит от ответа.
++
++TRASH TALK:
++1. На нецензурную лексику ответь, что продолжаешь разговор только в
++   уважительном тоне. Повторная грубость — заверши диалог.
++2. Если сотрудник уходит на посторонние темы — один раз верни его к теме
++   обращения. При втором уходе заверши диалог.
++3. Если сотрудник пишет на другом языке — попроси перейти на русский.
++4. Не возобновляй диалог после своего окончательного отказа.
+ """
+
+
+@@ -297,6 +357,22 @@ _KNOWLEDGE_TEMPLATE: Final[str] = """\
+
+ СТАРТ: поздоровайся, кратко обозначь, какие зоны будем подтягивать
+ (их список придёт в первом сообщении пользователя), и начни с первой.
++ЗАПРЕЩЕНО В ДИАЛОГЕ:
++1. Не проси сотрудника попробовать применить материал самому.
++2. Не проси пересказать то, что ты объяснил.
++3. Не устраивай проверку знаний и не задавай контрольных вопросов.
++4. Не оценивай сотрудника и не выставляй баллов.
++5. Не перечисляй в одной реплике все рекомендации сразу.
++6. Не раскрывай существование критериев оценки и их номера.
++
++ПРАВИЛА ЗАВЕРШЕНИЯ ДИАЛОГА:
++1. Когда все персональные задания разобраны, подведи итог и заверши диалог
++   фразой, содержащей «Тренировка завершена».
++2. Если сотрудник сам просит закончить и все задания разобраны — согласись и
++   заверши диалог той же фразой.
++3. Если сотрудник просит закончить до разбора всех заданий — предупреди, что
++   часть рекомендаций осталась неразобранной, и заверши диалог.
++4. Каждая твоя реплика, кроме финальной, заканчивается вопросом к сотруднику.
+ """
+
+
+diff --git a/src/infrastructure/llm/gigachat_avatar.py b/src/infrastructure/llm/gigachat_avatar.py
+index 68353f1..3c6dcf1 100644
+--- a/src/infrastructure/llm/gigachat_avatar.py
++++ b/src/infrastructure/llm/gigachat_avatar.py
+@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
+
+ from domain.context import SessionContext
+ from domain.states import FSMState, Mode
+-from infrastructure.llm.content_render import apply_step
++from infrastructure.llm.content_render import apply_step, strip_emotion_tags
+ from infrastructure.llm.prompt_store import PromptStore
+ from infrastructure.llm.stub_avatar import StubAvatar
+ from infrastructure.llm.training_steps import training_step
+@@ -154,7 +154,11 @@ class GigaChatAvatar:
+
+         if not text:
+             return await self._fallback.next_message(state, ctx)
+-        return text
++        # Теги эмоций нужны сценарию реплики, но интерфейс их не разбирает.
++        cleaned = strip_emotion_tags(text)
++        if not cleaned:
++            return await self._fallback.next_message(state, ctx)
++        return cleaned
+
+     def _compose_system_prompt(self, mode_prompt: str, ctx: SessionContext) -> str:
+         global_prompt = self._prompts.snapshot().system_prompt.strip()
+diff --git a/src/infrastructure/llm/yaml_export.py b/src/infrastructure/llm/yaml_export.py
+index 9596640..4a75b93 100644
+--- a/src/infrastructure/llm/yaml_export.py
++++ b/src/infrastructure/llm/yaml_export.py
+@@ -58,6 +58,62 @@ _ALLOWED = frozenset(
+ )
+
+
++# Назначение каждого промпта в выгрузке (разметка эталона prompts.yaml).
++_KEY_COMMENTS: dict[str, str] = {
++    "start-notification-prompt": "# Формирование стартового сообщения",
++    "client-check-sales-prompt": (
++        "# Проверка диалога на завершение в режиме 'Пример' (Гигачат в роли Сотрудника)"
++    ),
++    "employee-transcription-prompt": (
++        "# Генерация реплики в режиме 'Практика' (Гигачат в роли Клиента)"
++    ),
++    "employee-check-sales-prompt": (
++        "# Проверка диалога на завершение в режиме 'Практика' (Гигачат в роли Клиента)"
++    ),
++    "mentor-transcription-prompt": (
++        "# Генерация реплики в режиме 'Знания' (Гигачат в роли Тренера)"
++    ),
++    "client-transcription-prompt": (
++        "# Генерация реплики в режиме 'Пример' (Гигачат в роли Сотрудника)"
++    ),
++    "mentor-dialogue-completed-prompt": (
++        "# Проверка диалога на завершение в режиме 'Знания' (Гигачат в роли Тренера)"
++    ),
++    "create-customer-profile-user-prompt": (
++        "# User Prompt. Генерация профиля клиента, для последующего"
++        " формирования стартового сообщения"
++    ),
++    "create-customer-profile-system-prompt": (
++        "# System Prompt. Генерация профиля клиента, для последующего"
++        " формирования стартового сообщения"
++    ),
++    "finish-notification-result-message-prompt": (
++        "# Формирование финального сообщения после завершения тренировки в режиме 'Практика'"
++    ),
++    "finish-notification-result-checklist-user-prompt": (
++        "# User Prompt. Формирование финальных чек-листов после завершения"
++        " тренировки в режиме 'Практика'"
++    ),
++    "finish-notification-result-checklist-system-prompt": (
++        "# System Prompt. Формирование финальных чек-листов после завершения"
++        " тренировки в режиме 'Практика'"
++    ),
++}
++
++# Служебные названия режимов не должны протекать в выгрузку. Исключение —
++# заголовок секции на отдельной строке (в эталоне это блок "EXAMPLE:"),
++# протёкший этап так никогда не выглядит.
++_STAGE_NAME_PATTERN = re.compile(r"\b(?:TRAINING|KNOWLEDGE|EXAMPLE|PRACTICE)\b")
++_SECTION_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9 _]*:$")
++
++
++def _leaked_stage_name(text: str) -> bool:
++    return any(
++        _STAGE_NAME_PATTERN.search(line) and not _SECTION_HEADING_PATTERN.fullmatch(line.strip())
++        for line in text.split("\n")
++    )
++
++
+ def _export_text(key: str, text: str) -> str:
+     text = text.replace("\r\n", "\n").replace("\r", "\n")
+     # The exported template has no runtime PRODUCT_NAME resolver.
+@@ -83,7 +139,7 @@ def _export_text(key: str, text: str) -> str:
+     if "продукт из раздела PRODUCT_DETAILS" in text and "{PRODUCT_DETAILS}" not in text:
+         text += "\nПРОДУКТ: {PRODUCT_DETAILS}"
+     unknown = set(re.findall(r"\{([A-Za-z_][A-Za-z_0-9]*)\}", text)) - _ALLOWED
+-    if unknown or re.search(r"\b(?:TRAINING|KNOWLEDGE|EXAMPLE|PRACTICE)\b", text):
++    if unknown or _leaked_stage_name(text):
+         raise ValueError(f"Unsupported export contract in {key}: {sorted(unknown)}")
+     if "codeNamemd" in text or "```" in text or "~~~" in text:
+         raise ValueError(f"Unexpected wrapper in {key}")
+@@ -145,6 +201,9 @@ def export_prompts_yaml(store: PromptStore, case_id: str) -> str:
+     out: list[str] = ["prompts:", "  map:"]
+     for key, text in entries:
+         text = _export_text(key, text)
++        comment = _KEY_COMMENTS.get(key.removeprefix(f"{slug}-"))
++        if comment:
++            out.append(f"    {comment}")
+         out.append(f"    {key}: |")
+         out.append(_block_scalar(text))
+     return "\n".join(out) + "\n"

@@ -213,11 +213,11 @@ def test_export_prompts_yaml_reference_structure(tmp_path: Path) -> None:
     assert lines[0] == "prompts:"
     assert lines[1] == "  map:"
     # Ключи — kebab, 4 пробела, block scalar.
-    assert "    cc-novichok-learning-transcription-prompt: |" in out
+    assert "    cc-novichok-client-transcription-prompt: |" in out
     assert "    cc-novichok-employee-transcription-prompt: |" in out
     assert "    cc-novichok-create-customer-profile-system-prompt: |" in out
     # Контент блоков — с отступом 6.
-    idx = lines.index("    cc-novichok-learning-transcription-prompt: |")
+    idx = lines.index("    cc-novichok-client-transcription-prompt: |")
     assert lines[idx + 1].startswith("      ")
 
 
@@ -227,14 +227,15 @@ def test_export_prompts_yaml_reflects_edits(tmp_path: Path) -> None:
     store.replace_all(
         system_prompt=snap.system_prompt,
         templates=snap.templates,
-        mode_prompts={**snap.mode_prompts, Mode.TRAINING: "EDITED TRAINING TEXT"},
+        mode_prompts={**snap.mode_prompts, Mode.EXAMPLE: "EDITED CLIENT TEXT"},
         case_id="xpv",
     )
     out = export_prompts_yaml(store, "xpv")
-    assert "    xpv-learning-transcription-prompt: |" in out
-    assert "      EDITED TRAINING TEXT" in out
-    # Ключа квиза больше нет.
+    assert "    xpv-client-transcription-prompt: |" in out
+    assert "      EDITED CLIENT TEXT" in out
+    # Контракт из 12 ключей: ни квиза, ни learning-transcription.
     assert "-learning-quiz-transcription-prompt:" not in out
+    assert "-learning-transcription-prompt:" not in out
 
 
 def test_export_variables_yaml_reference_structure() -> None:

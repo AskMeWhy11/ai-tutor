@@ -25,6 +25,7 @@ __all__ = [
     "apply_profile",
     "apply_step",
     "render_prompt",
+    "strip_emotion_tags",
     "strip_markdown_emphasis",
 ]
 
@@ -84,6 +85,19 @@ def strip_markdown_emphasis(text: str) -> str:
     text = _BOLD_PATTERN.sub(r"\1", text)
     text = _ITALIC_PATTERN.sub(r"\1", text)
     return text
+
+
+# Эмоции ставит модель тегами [sad]/[neutral]/[happy]/[annoyed]: они нужны
+# сценарию реплики, но в интерфейс попадать не должны — рантайм их не разбирает.
+_EMOTION_TAG_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\[(?:sad|neutral|happy|annoyed)\]", re.IGNORECASE
+)
+
+
+def strip_emotion_tags(text: str) -> str:
+    """Убрать служебные теги эмоций из реплики перед показом сотруднику."""
+    cleaned = _EMOTION_TAG_PATTERN.sub("", text)
+    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
 
 
 def _variable_key(placeholder: str) -> str:

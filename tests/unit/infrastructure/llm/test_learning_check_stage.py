@@ -169,11 +169,15 @@ def test_v9_quiz_prompt_merged_into_training(tmp_path: Path) -> None:
     assert "quiz_prompt" not in raw["cases"]["xpv"]
 
 
-# ---------- YAML: ключа квиза нет ----------
+# ---------- YAML: ни квиза, ни режима обучения ----------
 
 
 def test_yaml_export_has_no_quiz_key(tmp_path: Path) -> None:
     store = PromptStore(tmp_path / "prompts.json")
     out = export_prompts_yaml(store, DEFAULT_CASE_ID)
     assert "-learning-quiz-transcription-prompt:" not in out
-    assert "ЭТАП LEARNING_CHECK" in out  # квиз внутри learning-transcription
+    # Выгрузка описывает 12 эталонных ключей: TRAINING в неё не входит,
+    # поэтому секция LEARNING_CHECK остаётся только во внутреннем промпте.
+    assert "-learning-transcription-prompt:" not in out
+    assert "ЭТАП LEARNING_CHECK" not in out
+    assert "ЭТАП LEARNING_CHECK" in store.get_mode_prompt(Mode.TRAINING, DEFAULT_CASE_ID)

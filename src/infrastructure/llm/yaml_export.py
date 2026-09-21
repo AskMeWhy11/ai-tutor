@@ -58,6 +58,62 @@ _ALLOWED = frozenset(
 )
 
 
+# Назначение каждого промпта в выгрузке (разметка эталона prompts.yaml).
+_KEY_COMMENTS: dict[str, str] = {
+    "start-notification-prompt": "# Формирование стартового сообщения",
+    "client-check-sales-prompt": (
+        "# Проверка диалога на завершение в режиме 'Пример' (Гигачат в роли Сотрудника)"
+    ),
+    "employee-transcription-prompt": (
+        "# Генерация реплики в режиме 'Практика' (Гигачат в роли Клиента)"
+    ),
+    "employee-check-sales-prompt": (
+        "# Проверка диалога на завершение в режиме 'Практика' (Гигачат в роли Клиента)"
+    ),
+    "mentor-transcription-prompt": (
+        "# Генерация реплики в режиме 'Знания' (Гигачат в роли Тренера)"
+    ),
+    "client-transcription-prompt": (
+        "# Генерация реплики в режиме 'Пример' (Гигачат в роли Сотрудника)"
+    ),
+    "mentor-dialogue-completed-prompt": (
+        "# Проверка диалога на завершение в режиме 'Знания' (Гигачат в роли Тренера)"
+    ),
+    "create-customer-profile-user-prompt": (
+        "# User Prompt. Генерация профиля клиента, для последующего"
+        " формирования стартового сообщения"
+    ),
+    "create-customer-profile-system-prompt": (
+        "# System Prompt. Генерация профиля клиента, для последующего"
+        " формирования стартового сообщения"
+    ),
+    "finish-notification-result-message-prompt": (
+        "# Формирование финального сообщения после завершения тренировки в режиме 'Практика'"
+    ),
+    "finish-notification-result-checklist-user-prompt": (
+        "# User Prompt. Формирование финальных чек-листов после завершения"
+        " тренировки в режиме 'Практика'"
+    ),
+    "finish-notification-result-checklist-system-prompt": (
+        "# System Prompt. Формирование финальных чек-листов после завершения"
+        " тренировки в режиме 'Практика'"
+    ),
+}
+
+# Служебные названия режимов не должны протекать в выгрузку. Исключение —
+# заголовок секции на отдельной строке (в эталоне это блок "EXAMPLE:"),
+# протёкший этап так никогда не выглядит.
+_STAGE_NAME_PATTERN = re.compile(r"\b(?:TRAINING|KNOWLEDGE|EXAMPLE|PRACTICE)\b")
+_SECTION_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9 _]*:$")
+
+
+def _leaked_stage_name(text: str) -> bool:
+    return any(
+        _STAGE_NAME_PATTERN.search(line) and not _SECTION_HEADING_PATTERN.fullmatch(line.strip())
+        for line in text.split("\n")
+    )
+
+
 def _export_text(key: str, text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # The exported template has no runtime PRODUCT_NAME resolver.
@@ -83,7 +139,7 @@ def _export_text(key: str, text: str) -> str:
     if "продукт из раздела PRODUCT_DETAILS" in text and "{PRODUCT_DETAILS}" not in text:
         text += "\nПРОДУКТ: {PRODUCT_DETAILS}"
     unknown = set(re.findall(r"\{([A-Za-z_][A-Za-z_0-9]*)\}", text)) - _ALLOWED
-    if unknown or re.search(r"\b(?:TRAINING|KNOWLEDGE|EXAMPLE|PRACTICE)\b", text):
+    if unknown or _leaked_stage_name(text):
         raise ValueError(f"Unsupported export contract in {key}: {sorted(unknown)}")
     if "codeNamemd" in text or "```" in text or "~~~" in text:
         raise ValueError(f"Unexpected wrapper in {key}")
@@ -145,6 +201,9 @@ def export_prompts_yaml(store: PromptStore, case_id: str) -> str:
     out: list[str] = ["prompts:", "  map:"]
     for key, text in entries:
         text = _export_text(key, text)
+        comment = _KEY_COMMENTS.get(key.removeprefix(f"{slug}-"))
+        if comment:
+            out.append(f"    {comment}")
         out.append(f"    {key}: |")
         out.append(_block_scalar(text))
     return "\n".join(out) + "\n"

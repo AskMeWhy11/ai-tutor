@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from domain.context import SessionContext
 from domain.states import FSMState, Mode
-from infrastructure.llm.content_render import apply_step
+from infrastructure.llm.content_render import apply_step, strip_emotion_tags
 from infrastructure.llm.prompt_store import PromptStore
 from infrastructure.llm.stub_avatar import StubAvatar
 from infrastructure.llm.training_steps import training_step
@@ -154,7 +154,11 @@ class GigaChatAvatar:
 
         if not text:
             return await self._fallback.next_message(state, ctx)
-        return text
+        # Теги эмоций нужны сценарию реплики, но интерфейс их не разбирает.
+        cleaned = strip_emotion_tags(text)
+        if not cleaned:
+            return await self._fallback.next_message(state, ctx)
+        return cleaned
 
     def _compose_system_prompt(self, mode_prompt: str, ctx: SessionContext) -> str:
         global_prompt = self._prompts.snapshot().system_prompt.strip()

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from domain.context import SessionContext
 from domain.states import FSMState, Mode
-from infrastructure.llm.content_render import apply_step, strip_emotion_tags
+from infrastructure.llm.content_render import apply_step, is_usable_reply, sanitize_reply
 from infrastructure.llm.prompt_store import PromptStore
 from infrastructure.llm.stub_avatar import StubAvatar
 from infrastructure.llm.training_steps import training_step
@@ -152,11 +152,17 @@ class GigaChatAvatar:
             logger.exception("GigaChat call failed for mode=%s, fallback to stub", mode)
             return await self._fallback.next_message(state, ctx)
 
-        if not text:
-            return await self._fallback.next_message(state, ctx)
-        # Теги эмоций нужны сценарию реплики, но интерфейс их не разбирает.
-        cleaned = strip_emotion_tags(text)
-        if not cleaned:
+        # Теги эмоций нужны сценарию реплики, но интерфейс их не разбирает;
+        # заодно снимаем хвостовые артефакты токенизации.
+        cleaned = sanitize_reply(text)
+        if not is_usable_reply(cleaned):
+            logger.warning(
+                "GigaChat reply rejected: mode=%s state=%s case=%s raw=%r",
+                mode,
+                state.value,
+                ctx.product_id or "-",
+                text[:200],
+            )
             return await self._fallback.next_message(state, ctx)
         return cleaned
 
@@ -209,7 +215,19 @@ class GigaChatAvatar:
         except Exception:
             logger.exception("GigaChat call failed for state=%s, fallback to base", state)
             return base
-        return text or base
+
+        # Статичные состояния — это переходы между режимами. Здесь санитайзинга
+        # раньше не было, и мусор из модели попадал в интерфейс дословно.
+        cleaned = sanitize_reply(text)
+        if not is_usable_reply(cleaned):
+            logger.warning(
+                "GigaChat static reply rejected: state=%s case=%s raw=%r",
+                state.value,
+                ctx.product_id or "-",
+                text[:200],
+            )
+            return base
+        return cleaned
 
     # ------------------------------------------------------------------
     # Низкоуровневый вызов

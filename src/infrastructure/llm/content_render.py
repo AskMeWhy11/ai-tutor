@@ -24,7 +24,9 @@ __all__ = [
     "STEP_PLACEHOLDERS",
     "apply_profile",
     "apply_step",
+    "is_usable_reply",
     "render_prompt",
+    "sanitize_reply",
     "strip_emotion_tags",
     "strip_markdown_emphasis",
 ]
@@ -98,6 +100,37 @@ def strip_emotion_tags(text: str) -> str:
     """Убрать служебные теги эмоций из реплики перед показом сотруднику."""
     cleaned = _EMOTION_TAG_PATTERN.sub("", text)
     return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+
+
+# Модель иногда приклеивает к концу реплики служебный обрывок токенизации
+# ("Завершаем?QT") или отдаёт его отдельным сообщением ("rightarrow", "IP").
+# Признак артефакта: латиница, приклеенная к кириллице или знаку препинания
+# без пробела. Латиница через пробел не трогается — это может быть название.
+_TRAILING_ARTIFACT_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?<=[?!.,;:\u0430-\u044f\u0451\u0410-\u042f\u0401])[A-Za-z]{1,15}\s*$"
+)
+_CYRILLIC_PATTERN: Final[re.Pattern[str]] = re.compile(r"[\u0430-\u044f\u0451\u0410-\u042f\u0401]")
+
+
+def sanitize_reply(text: str) -> str:
+    """Подготовить реплику LLM к показу: убрать теги эмоций и хвостовой мусор."""
+    cleaned = strip_emotion_tags(text)
+    cleaned = _TRAILING_ARTIFACT_PATTERN.sub("", cleaned)
+    return cleaned.strip()
+
+
+def is_usable_reply(text: str) -> bool:
+    """Годится ли реплика для показа сотруднику.
+
+    Отсекаем только явный мусор: пустой текст и ответ без кириллицы
+    (интерфейс русскоязычный, поэтому латинский огрызок вида "rightarrow"
+    или "IP" осмысленной репликой быть не может). Короткие русские ответы
+    («Хорошо.», «Да, верно.») проходят.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    return bool(_CYRILLIC_PATTERN.search(stripped))
 
 
 def _variable_key(placeholder: str) -> str:

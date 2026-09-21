@@ -363,21 +363,82 @@ poetry run pytest --cov=src --cov-report=term-missing
 
 Просто ввести:
 ```bash
-# 1. Бэкап cases/ из работающего контейнера (products.json + факты/диалоги/чек-листы всех кейсов)
-docker cp ai-tutor-app:/app/src/infrastructure/content/cases /tmp/cases_backup
+(
+  set -Eeuo pipefail
+  umask 077
+  cd /root/ai-tutor
 
-# 2. Pull + пересборка
-git pull
-docker compose build && docker compose up -d
+  exec 9>/root/ai-tutor-deploy.lock
+  flock -n 9 || { echo "Другое обновление выполняется."; exit 1; }
 
-# 3. Восстановить cases/ обратно (мерджит: git-новинки остаются, рантайм-данные возвращаются)
-docker cp /tmp/cases_backup/. ai-tutor-app:/app/src/infrastructure/content/cases/
+  command -v python3 >/dev/null
+  docker compose version >/dev/null
+  docker inspect ai-tutor-app >/dev/null
 
-# 4. Перезапустить чтобы приложение перечитало файлы
-docker compose restart app
+  var_source=$(docker inspect ai-tutor-app --format '{{range .Mounts}}{{if eq .Destination "/app/var"}}{{.Source}}{{end}}{{end}}')
+  test "$var_source" = "/root/ai-tutor/var" || { echo "ОШИБКА: неожиданное подключение /app/var: $var_source"; exit 1; }
 
-# 5. Проверить
-docker exec ai-tutor-app cat /app/src/infrastructure/content/cases/products.json
+  backup_dir=$(mktemp -d /root/ai-tutor-backup.XXXXXXXX)
+  mkdir -p "$backup_dir/cases" "$backup_dir/var" "$backup_dir/verify"
+
+  echo "Резервная копия: $backup_dir"
+
+  trap '
+    rc=$?
+    echo "ОШИБКА: обновление прервано, код $rc. Бэкап: $backup_dir"
+    echo "Проверьте: docker compose ps -a"
+    exit "$rc"
+  ' ERR
+
+  # Останавливаем приложение перед синхронизацией
+  docker compose stop app
+
+  # Сохраняем текущие материалы и промпты
+  docker cp -a ai-tutor-app:/app/src/infrastructure/content/cases/. "$backup_dir/cases/" || true
+  docker cp -a ai-tutor-app:/app/var/. "$backup_dir/var/" || true
+
+  # Проверяем наличие ключевых файлов
+  test -f "$backup_dir/cases/products.json" || echo "Предупреждение: products.json не найден в бэкапе"
+  test -f "$backup_dir/var/prompts/templates.json" || echo "Предупреждение: templates.json не найден в бэкапе"
+
+  # Получаем изменения из репозитория
+  git fetch origin feature/multi-products
+  git reset --hard FETCH_HEAD
+
+  # Собираем новый образ
+  docker compose build app
+
+  # Создаём новый контейнер БЕЗ запуска
+  docker compose up --no-start --no-deps --no-build --force-recreate app
+
+  # Восстанавливаем материалы в остановленный контейнер
+  docker cp -a "$backup_dir/cases/." ai-tutor-app:/app/src/infrastructure/content/cases/ || true
+
+  # var уже на хосте и подключён bind mount, не перезаписываем
+
+  # Проверяем восстановленные файлы перед запуском
+  mkdir -p "$backup_dir/verify/cases"
+  docker cp -a ai-tutor-app:/app/src/infrastructure/content/cases/. "$backup_dir/verify/cases/" || true
+
+  if [ -f "$backup_dir/cases/products.json" ] && [ -f "$backup_dir/verify/cases/products.json" ]; then
+    if ! cmp -s "$backup_dir/cases/products.json" "$backup_dir/verify/cases/products.json"; then
+      echo "ОШИБКА: products.json не совпадает после восстановления"
+      exit 1
+    fi
+  fi
+
+  # Запускаем новую версию
+  docker compose start app
+  sleep 5
+
+  docker compose ps app
+  docker compose logs --tail=50 app
+
+  echo
+  echo "✓ Новая версия развёрнута. Проверьте доступность и функциональность сервиса."
+  echo "  Бэкап сохранён: $backup_dir"
+  echo "  Удалите его после проверки: rm -rf $backup_dir"
+)
 ```
 
 ---

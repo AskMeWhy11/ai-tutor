@@ -608,7 +608,10 @@ def test_export_prompts_yaml_download(auth_client: TestClient) -> None:
     assert 'filename="prompts-cc-novichok.yaml"' in res.headers["content-disposition"]
     assert res.text.startswith("prompts:\n  map:\n")
     assert "-learning-check-prompt:" not in res.text
-    assert "КРИТЕРИИ ЗАВЕРШЕНИЯ СТАДИИ (cc-novichok-learning-check):" in res.text
+    # Критерии завершения живут только в проверочных промптах, не в генерационных.
+    assert "КРИТЕРИИ ЗАВЕРШЕНИЯ СТАДИИ" not in res.text
+    assert "cc-novichok-client-check-sales-prompt:" in res.text
+    assert "cc-novichok-mentor-dialogue-completed-prompt:" in res.text
 
 
 def test_export_variables_yaml_download(auth_client: TestClient) -> None:

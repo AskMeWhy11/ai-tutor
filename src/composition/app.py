@@ -47,6 +47,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def configure_logging() -> None:
+    """Включить вывод логов в stdout — иначе docker compose logs пуст.
+
+    Логирование не настраивалось вовсе, поэтому предупреждения (например,
+    об отклонённой реплике LLM) никуда не попадали.
+    """
+    if logging.getLogger().handlers:
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
 _WEB_DIR = Path(__file__).resolve().parent.parent / "infrastructure" / "web"
 _STATIC_DIR = _WEB_DIR / "static"
 _TEMPLATES_DIR = _WEB_DIR / "templates"
@@ -64,6 +79,7 @@ def create_app(
     stage_director: StageDirector | None = None,
     customer_profile_generator: CustomerProfileGenerator | None = None,
 ) -> FastAPI:
+    configure_logging()
     settings = settings or get_settings()
 
     audio_cache = FileAudioCache(settings.tts_cache_path)

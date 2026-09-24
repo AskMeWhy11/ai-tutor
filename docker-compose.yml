@@ -14,6 +14,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - ./var:/app/var
+      - ./gigachat_ca_bundle.pem:/app/gigachat_ca_bundle.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
